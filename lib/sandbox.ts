@@ -233,4 +233,51 @@ export async function getAppSandbox(name: string): Promise<Sandbox> {
   return Sandbox.get({ name, resume: true, ...creds() });
 }
 
+/** Is the app's dev server currently listening on APP_PORT inside the sandbox? */
+async function isListening(sandbox: Sandbox): Promise<boolean> {
+  const cmd = await sandbox.runCommand({
+    cmd: "bash",
+    args: [
+      "-lc",
+      // curl prints "000" as the http_code when it can't connect (server down).
+      `curl -s -o /dev/null -m 3 -w '%{http_code}' http://localhost:${APP_PORT}`,
+    ],
+  });
+  const code = (await cmd.stdout()).trim();
+  // A real HTTP status (2xx/3xx/4xx/5xx) means the server is accepting connections.
+  return /^[2345]\d\d$/.test(code);
+}
+
+/**
+ * Bring a prototype's app back to a live, serving state. Sandboxes suspend/stop
+ * on their idle timeout, so opening a preview after a while can 502 with
+ * SANDBOX_NOT_LISTENING. This resumes the sandbox via the SDK (which waits for
+ * readiness), (re)starts the dev server if it isn't listening, and pushes out
+ * the timeout so an active session doesn't get evicted mid-use.
+ */
+export async function ensureAppRunning(
+  name: string,
+  databaseUrl: string
+): Promise<{ url: string }> {
+  const sandbox = await getAppSandbox(name);
+
+  // Keep an actively-used prototype alive longer.
+  try {
+    await sandbox.extendTimeout(SANDBOX_TIMEOUT_MS);
+  } catch {
+    // Best-effort: already at the plan's max, or not resumable to extend.
+  }
+
+  if (!(await isListening(sandbox))) {
+    await startDevServer(sandbox, databaseUrl);
+    // Poll until the server accepts connections (npm deps are already installed).
+    for (let i = 0; i < 15; i++) {
+      if (await isListening(sandbox)) break;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+
+  return { url: sandbox.domain(APP_PORT) };
+}
+
 export { Sandbox };

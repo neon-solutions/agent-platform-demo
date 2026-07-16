@@ -7,6 +7,7 @@ import { Streamdown } from "streamdown";
 import {
   ArrowLeft,
   RefreshCw,
+  RotateCw,
   ExternalLink,
   Send,
   Wrench,
@@ -215,6 +216,30 @@ function MessageBubble({ role, parts }: { role: string; parts: unknown[] }) {
 function PreviewPanel({ proto }: { proto: Prototype }) {
   const [tab, setTab] = useState<"preview" | "checkpoints">("preview");
   const [nonce, setNonce] = useState(0);
+  const [waking, setWaking] = useState(false);
+  const [liveUrl, setLiveUrl] = useState<string | null>(proto.sandboxUrl);
+
+  // Sandboxes suspend/stop on their idle timeout, so opening a preview after a
+  // while can 502. Wake it (resume + restart the dev server) when ready.
+  const wake = useCallback(async () => {
+    if (proto.status !== "ready") return;
+    setWaking(true);
+    try {
+      const res = await fetch(`/api/prototypes/${proto.id}/wake`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not wake the app");
+      setLiveUrl(data.url);
+      setNonce((n) => n + 1);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not wake the app");
+    } finally {
+      setWaking(false);
+    }
+  }, [proto.id, proto.status]);
+
+  useEffect(() => {
+    if (proto.status === "ready") wake();
+  }, [proto.status, wake]);
 
   return (
     <div className="flex min-h-0 flex-col bg-black/20">
@@ -227,27 +252,48 @@ function PreviewPanel({ proto }: { proto: Prototype }) {
             Checkpoints
           </TabButton>
         </div>
-        {tab === "preview" && proto.sandboxUrl && (
-          <Button variant="ghost" size="sm" onClick={() => setNonce((n) => n + 1)}>
-            <RefreshCw /> Refresh
-          </Button>
+        {tab === "preview" && proto.status === "ready" && (
+          <div className="flex gap-1">
+            <Button variant="ghost" size="sm" onClick={wake} disabled={waking} title="Resume the sandbox & restart the dev server">
+              <RotateCw className={waking ? "animate-spin" : ""} /> Restart
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setNonce((n) => n + 1)} disabled={waking}>
+              <RefreshCw /> Refresh
+            </Button>
+          </div>
         )}
       </div>
       <div className="min-h-0 flex-1">
         {tab === "preview" ? (
-          proto.status === "ready" && proto.sandboxUrl ? (
+          proto.status !== "ready" ? (
+            <ProvisioningState proto={proto} />
+          ) : waking && !liveUrl ? (
+            <WakingState />
+          ) : liveUrl ? (
             <iframe
               key={nonce}
-              src={proto.sandboxUrl}
+              src={liveUrl}
               className="h-full w-full border-0 bg-white"
               title="App preview"
             />
           ) : (
-            <ProvisioningState proto={proto} />
+            <WakingState />
           )
         ) : (
           <CheckpointsPanel proto={proto} />
         )}
+      </div>
+    </div>
+  );
+}
+
+function WakingState() {
+  return (
+    <div className="grid h-full place-items-center p-8 text-center">
+      <div className="flex flex-col items-center gap-3 text-muted-foreground">
+        <Loader2 className="size-6 animate-spin text-primary" />
+        <p className="text-sm">Waking the sandbox…</p>
+        <p className="text-xs">Resuming the VM and starting the dev server.</p>
       </div>
     </div>
   );
