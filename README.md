@@ -1,4 +1,4 @@
-# Vibe — a baby Replit / Lovable / v0 on Neon
+# Vibe — a demo codegen platform on Neon
 
 A minimal **codegen platform**: users describe an app in chat, and a coding
 agent vibe-codes it into a live, isolated environment — with every prototype

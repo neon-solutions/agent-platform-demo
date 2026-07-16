@@ -3,7 +3,7 @@ import { Toaster } from "sonner";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Vibe — a baby Replit on Neon",
+  title: "Vibe — a demo codegen platform on Neon",
   description:
     "A minimal codegen platform: a Mastra coding agent on Neon Functions vibe-codes apps into Vercel Sandboxes backed by per-app Neon Postgres, with git + snapshot checkpoints.",
 };

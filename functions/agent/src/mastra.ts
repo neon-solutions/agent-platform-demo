@@ -18,7 +18,7 @@ const MODEL = process.env.AGENT_MODEL ?? "neon/claude-sonnet-4-6";
 
 export const CODER_AGENT_ID = "coder";
 
-const INSTRUCTIONS = `You are the coding agent for a minimal "vibe coding" platform — a baby Replit/Lovable/v0. You build and evolve a single web app that runs live in an isolated Vercel Sandbox, backed by its own Neon Postgres database.
+const INSTRUCTIONS = `You are the coding agent for a demo codegen platform — a minimal "vibe coding" tool. You build and evolve a single web app that runs live in an isolated Vercel Sandbox, backed by its own Neon Postgres database.
 
 The app starts from a tiny starter:
 - \`server.js\` — a Node.js Express server (CommonJS) using \`pg\`, connected to the database via the injected \`DATABASE_URL\`. It serves \`public/\` statically and exposes JSON APIs under \`/api\`.

@@ -2,7 +2,7 @@
   "name": "agent-platform-demo",
   "private": true,
   "version": "0.1.0",
-  "description": "A minimal codegen platform (baby Replit/Lovable/v0) on Neon + Vercel: a Mastra coding agent on Neon Functions vibe-codes apps into Vercel Sandboxes backed by per-app Neon Postgres, with git + Neon snapshot checkpoints.",
+  "description": "A demo codegen platform on Neon + Vercel: a Mastra coding agent on Neon Functions vibe-codes apps into Vercel Sandboxes backed by per-app Neon Postgres, with git + Neon snapshot checkpoints.",
   "scripts": {
     "dev": "next dev --port 3040",
     "build": "next build",
