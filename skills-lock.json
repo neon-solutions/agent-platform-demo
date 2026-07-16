@@ -37,6 +37,12 @@
       "skillPath": "skills/neon-postgres/SKILL.md",
       "computedHash": "3c9f8152cc160ef7d31aed8e8648c132ed587edb7b5bb0545a9bc0034deb86b0"
     },
+    "neon-postgres-agent-platforms": {
+      "source": "neondatabase/neon-for-agent-platforms",
+      "sourceType": "github",
+      "skillPath": "skills/neon-postgres-agent-platforms/SKILL.md",
+      "computedHash": "7afe8d2ddc04ace9850aaa0bb1dca5e3edbf575a27e3eed9ba6863f07326f5a6"
+    },
     "neon-postgres-branches": {
       "source": "neondatabase/agent-skills",
       "sourceType": "github",

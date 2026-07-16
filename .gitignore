@@ -21,5 +21,7 @@ build
 *.tsbuildinfo
 next-env.d.ts
 
-# Vendored agent skills (local tooling, not part of the app)
-.agents/
+# Vendored agent skills (local tooling). Only the agent-platforms skill —
+# the one this platform is built around — is committed; the rest stay local.
+.agents/skills/*
+!.agents/skills/neon-postgres-agent-platforms
