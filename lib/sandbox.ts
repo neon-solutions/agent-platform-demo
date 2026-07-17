@@ -440,6 +440,16 @@ async function waitForListening(sandbox: Sandbox, attempts = 40, delayMs = 1500)
   return false;
 }
 
+/** The app's HTTP status ("000" if not reachable). A 5xx means it's up but
+ *  erroring (e.g. bad DB credentials) — which should trigger a heal. */
+async function httpStatus(sandbox: Sandbox): Promise<string> {
+  const cmd = await sandbox.runCommand({
+    cmd: "bash",
+    args: ["-lc", `curl -s -o /dev/null -m 20 -w '%{http_code}' http://localhost:${APP_PORT}`],
+  });
+  return (await cmd.stdout()).trim();
+}
+
 /** Start (or restart) the Next.js dev server, detached, on APP_PORT. */
 export async function startDevServer(sandbox: Sandbox, databaseUrl: string): Promise<void> {
   await sandbox.runCommand({
@@ -516,7 +526,13 @@ export async function ensureAppRunning(
     // Best-effort: already at the plan's max, or not resumable to extend.
   }
 
-  if (!(await isListening(sandbox))) {
+  // Heal on open: (re)start the dev server with the CURRENT connection string
+  // whenever the app isn't serving a healthy response. A 5xx means it's up but
+  // erroring (e.g. the baked-in DB credentials drifted); restarting with the
+  // freshly-resolved `databaseUrl` self-heals it.
+  const status = await httpStatus(sandbox);
+  const healthy = /^[23]\d\d$/.test(status);
+  if (!healthy) {
     await startDevServer(sandbox, databaseUrl);
     await waitForListening(sandbox);
   }

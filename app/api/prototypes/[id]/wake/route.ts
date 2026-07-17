@@ -5,6 +5,7 @@ import { getPrototype } from "@/lib/prototypes";
 import { db } from "@/lib/db/client";
 import { prototype } from "@/lib/db/schema";
 import { ensureAppRunning } from "@/lib/sandbox";
+import { resolveConnection, type Plan } from "@/lib/neon";
 
 // Resuming a stopped sandbox + restarting the dev server can take a bit.
 export const maxDuration = 120;
@@ -24,7 +25,26 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   }
 
   try {
-    const { url } = await ensureAppRunning(proto.sandboxId ?? proto.id, proto.databaseUrl);
+    // Re-resolve the prototype's OWN current connection string so the app is
+    // always woken with valid credentials (self-heals any drift), then persist
+    // if it changed (e.g. branch rotation).
+    let databaseUrl = proto.databaseUrl;
+    if (proto.neonProjectId) {
+      const resolved = await resolveConnection(proto.plan as Plan, proto.neonProjectId);
+      databaseUrl = resolved.databaseUrl;
+      if (resolved.databaseUrl !== proto.databaseUrl || resolved.branchId !== proto.neonBranchId) {
+        await db
+          .update(prototype)
+          .set({
+            databaseUrl: resolved.databaseUrl,
+            neonBranchId: resolved.branchId,
+            updatedAt: new Date(),
+          })
+          .where(eq(prototype.id, id));
+      }
+    }
+
+    const { url } = await ensureAppRunning(proto.sandboxId ?? proto.id, databaseUrl);
     if (url !== proto.sandboxUrl) {
       await db
         .update(prototype)
