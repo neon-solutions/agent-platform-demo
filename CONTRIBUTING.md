@@ -67,6 +67,16 @@ neonctl api /organizations/<NEON_CONTROL_ORG_ID>/api_keys \
 # → .key  is NEON_CONTROL_API_KEY  (shown once — copy it now)
 ```
 
+**Create a personal (account-level) API key** (`NEON_PERSONAL_API_KEY`). This one
+is **not** org-scoped — it's required for the free → paid **project transfer**
+(org keys can't move a project between orgs):
+
+```bash
+neonctl api /api_keys \
+  --method POST --data '{"key_name":"agent-platform-demo-personal"}'
+# → .key  is NEON_PERSONAL_API_KEY  (shown once — copy it now)
+```
+
 > `NEON_AI_GATEWAY_TOKEN` and `NEON_AI_GATEWAY_BASE_URL` are **not** set by hand.
 > `neon deploy` (and `neon env pull`) provision the gateway and write them into
 > your `.env` automatically. Likewise `NEXT_PUBLIC_AGENT_URL` comes from

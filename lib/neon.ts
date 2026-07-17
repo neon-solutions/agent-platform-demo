@@ -124,3 +124,87 @@ export async function deleteTenantProject(plan: Plan, projectId: string): Promis
   const sdk = tenantClient(plan);
   await sdk.projects.delete(projectId);
 }
+
+/**
+ * Re-resolve a project's default branch + pooled connection string. Needed
+ * after a finalized snapshot restore (Neon rotates the branch id) or an org
+ * transfer, so the ledger and the app's DATABASE_URL stay correct.
+ */
+export async function resolveConnection(
+  plan: Plan,
+  projectId: string
+): Promise<{ branchId: string; databaseUrl: string }> {
+  const sdk = tenantClient(plan);
+  const listed = await sdk.branches.list(projectId).all();
+  if (listed.error) throw listed.error;
+  const defaultBranch = listed.data.find((b) => b.default) ?? listed.data[0];
+  if (!defaultBranch) throw new Error("project has no branch");
+  const databaseUrl = await sdk.postgres.connectionString({
+    projectId,
+    branchId: defaultBranch.id,
+    databaseName: "neondb",
+    roleName: "neondb_owner",
+    pooled: true,
+  });
+  return { branchId: defaultBranch.id, databaseUrl };
+}
+
+/**
+ * The dual-org economics move: when a free-tier user upgrades, transfer their
+ * Neon project from the sponsored free org to the paid org. This keeps all
+ * their data + connection string and just moves the billing boundary.
+ *
+ * Cross-org transfer requires a PERSONAL API key (org keys are scoped to one
+ * org). Projects with a Neon GitHub/Vercel integration can't transfer (422) —
+ * ours have none.
+ */
+export async function transferProjectToPaid(projectId: string): Promise<string> {
+  const apiKey = required("NEON_PERSONAL_API_KEY");
+  const fromOrgId = required("NEON_FREE_ORG_ID");
+  const toOrgId = required("NEON_PAID_ORG_ID");
+  const sdk = createNeonClient({ apiKey, orgId: fromOrgId, throwOnError: true, waitForReadiness: true });
+  await sdk.projects.transfer({ fromOrgId, toOrgId, projectIds: [projectId] });
+  return toOrgId;
+}
+
+/** Billing-aligned v2 metrics. */
+export const CONSUMPTION_METRICS = [
+  "compute_unit_seconds",
+  "root_branch_bytes_month",
+  "child_branch_bytes_month",
+  "snapshot_storage_bytes_month",
+  "public_network_transfer_bytes",
+] as const;
+
+export interface ProjectConsumption {
+  periods: Array<{
+    consumption: Array<Record<string, unknown>>;
+  }>;
+}
+
+/**
+ * Per-project, billing-aligned usage via the v2 consumption endpoint — the
+ * metering surface a metered fleet bills from.
+ */
+export async function getProjectConsumption(
+  plan: Plan,
+  projectId: string,
+  from: string,
+  to: string,
+  granularity: "hourly" | "daily" | "monthly" = "daily"
+): Promise<unknown[]> {
+  const creds = tenantCreds(plan);
+  const sdk = neonClientFor(creds);
+  const { data, error } = await sdk.consumption
+    .perProjectV2({
+      org_id: creds.orgId,
+      from,
+      to,
+      granularity,
+      metrics: [...CONSUMPTION_METRICS],
+      project_ids: [projectId],
+    })
+    .all();
+  if (error) throw error;
+  return data;
+}

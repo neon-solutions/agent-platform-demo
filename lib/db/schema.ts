@@ -120,10 +120,19 @@ export const checkpoint = pgTable("checkpoint", {
     .notNull()
     .references(() => prototype.id, { onDelete: "cascade" }),
   label: text("label").notNull(),
-  /** git commit SHA in the sandbox repo. */
+  /** git commit SHA in the sandbox repo (the source-revision dimension). */
   gitSha: text("git_sha"),
-  /** Neon snapshot id of the tenant branch at this checkpoint. */
+  /** Neon snapshot id of the tenant branch at this checkpoint (the data dimension). */
   snapshotId: text("snapshot_id"),
+  /**
+   * Compound-checkpoint dimensions (per neon-for-agent-platforms): a checkpoint
+   * is a version record that binds source + database state + deploy surface, not
+   * a Neon snapshot alone. We record which tenant project/branch the snapshot
+   * belongs to and the runnable surface (sandbox URL) at checkpoint time.
+   */
+  neonProjectId: text("neon_project_id"),
+  neonBranchId: text("neon_branch_id"),
+  sandboxUrl: text("sandbox_url"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

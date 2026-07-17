@@ -43,6 +43,27 @@ It's built entirely on the Neon backend platform + Vercel:
    matches its schema + data — the pattern from
    [Build Checkpoints For Your Agent Using Neon Snapshots](https://neon.com/blog/checkpoints-for-agents-with-neon-snapshots).
 
+## Neon-for-platforms patterns shown
+
+This demo deliberately exercises the control-plane patterns from the
+[`neon-postgres-agent-platforms`](.agents/skills/neon-postgres-agent-platforms/SKILL.md)
+skill ([neondatabase/neon-for-agent-platforms](https://github.com/neondatabase/neon-for-agent-platforms)):
+
+- **Project-per-tenant.** Every app gets its own dedicated Neon project (complete
+  data/compute isolation), provisioned via `@neon/sdk`.
+- **Dual-org economics + upgrade.** New apps route to a **sponsored free org** or a
+  **paid org**. The workspace's **Upgrade to Paid** button performs a real
+  cross-org **project transfer** (free → paid), keeping the data and connection
+  string — using a **personal** API key, since org keys can't cross orgs.
+- **Compound checkpoints.** A checkpoint is a version record binding **source
+  revision** (git commit), **database state** (Neon snapshot + project/branch), and
+  the **runnable surface** (sandbox URL) — not a snapshot alone. One-click
+  **Restore** rolls back code *and* data together, then reconnects (handling the
+  branch-id rotation a finalized restore causes).
+- **Consumption metering.** The **Usage** tab reads billing-aligned **v2
+  per-project** consumption (`compute_unit_seconds`, storage, egress) — how a
+  metered fleet bills each tenant.
+
 ## Architecture notes
 
 - **Neon Functions** host the agent because a vibe-coding turn (many LLM + tool calls)

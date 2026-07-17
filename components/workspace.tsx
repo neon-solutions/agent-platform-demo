@@ -8,6 +8,9 @@ import {
   ArrowLeft,
   RefreshCw,
   RotateCw,
+  RotateCcw,
+  ArrowUpCircle,
+  BarChart3,
   ExternalLink,
   Send,
   Wrench,
@@ -53,16 +56,33 @@ export function Workspace({ initial }: { initial: Prototype }) {
 
   return (
     <div className="flex h-screen flex-col">
-      <TopBar proto={proto} />
+      <TopBar proto={proto} onUpdated={setProto} />
       <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,420px)_1fr]">
         <ChatPanel proto={proto} />
-        <PreviewPanel proto={proto} />
+        <PreviewPanel proto={proto} onUpdated={setProto} />
       </div>
     </div>
   );
 }
 
-function TopBar({ proto }: { proto: Prototype }) {
+function TopBar({ proto, onUpdated }: { proto: Prototype; onUpdated: (p: Prototype) => void }) {
+  const [upgrading, setUpgrading] = useState(false);
+
+  async function upgrade() {
+    setUpgrading(true);
+    try {
+      const res = await fetch(`/api/prototypes/${proto.id}/upgrade`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Upgrade failed");
+      onUpdated(data.prototype);
+      toast.success("Upgraded — project transferred to the paid Neon org.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Upgrade failed");
+    } finally {
+      setUpgrading(false);
+    }
+  }
+
   return (
     <header className="flex items-center justify-between border-b border-border px-4 py-2.5">
       <div className="flex items-center gap-3">
@@ -79,13 +99,26 @@ function TopBar({ proto }: { proto: Prototype }) {
           <Database className="mr-1 size-3" /> {proto.plan} db
         </Badge>
       </div>
-      {proto.sandboxUrl && (
-        <Button asChild variant="outline" size="sm">
-          <a href={proto.sandboxUrl} target="_blank" rel="noreferrer">
-            Open <ExternalLink />
-          </a>
-        </Button>
-      )}
+      <div className="flex items-center gap-2">
+        {proto.status === "ready" && proto.plan === "free" && (
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={upgrade}
+            disabled={upgrading}
+            title="Transfer this app's Neon project from the free org to the paid org"
+          >
+            {upgrading ? <Loader2 className="animate-spin" /> : <ArrowUpCircle />} Upgrade to Paid
+          </Button>
+        )}
+        {proto.sandboxUrl && (
+          <Button asChild variant="outline" size="sm">
+            <a href={proto.sandboxUrl} target="_blank" rel="noreferrer">
+              Open <ExternalLink />
+            </a>
+          </Button>
+        )}
+      </div>
     </header>
   );
 }
@@ -213,8 +246,8 @@ function MessageBubble({ role, parts }: { role: string; parts: unknown[] }) {
   );
 }
 
-function PreviewPanel({ proto }: { proto: Prototype }) {
-  const [tab, setTab] = useState<"preview" | "checkpoints">("preview");
+function PreviewPanel({ proto, onUpdated }: { proto: Prototype; onUpdated: (p: Prototype) => void }) {
+  const [tab, setTab] = useState<"preview" | "checkpoints" | "usage">("preview");
   const [nonce, setNonce] = useState(0);
   const [waking, setWaking] = useState(false);
   const [liveUrl, setLiveUrl] = useState<string | null>(proto.sandboxUrl);
@@ -251,6 +284,9 @@ function PreviewPanel({ proto }: { proto: Prototype }) {
           <TabButton active={tab === "checkpoints"} onClick={() => setTab("checkpoints")}>
             Checkpoints
           </TabButton>
+          <TabButton active={tab === "usage"} onClick={() => setTab("usage")}>
+            Usage
+          </TabButton>
         </div>
         {tab === "preview" && proto.status === "ready" && (
           <div className="flex gap-1">
@@ -279,8 +315,17 @@ function PreviewPanel({ proto }: { proto: Prototype }) {
           ) : (
             <WakingState />
           )
+        ) : tab === "checkpoints" ? (
+          <CheckpointsPanel
+            proto={proto}
+            onRestored={(updated) => {
+              onUpdated(updated);
+              setTab("preview");
+              wake();
+            }}
+          />
         ) : (
-          <CheckpointsPanel proto={proto} />
+          <UsagePanel proto={proto} />
         )}
       </div>
     </div>
@@ -340,9 +385,16 @@ function ProvisioningState({ proto }: { proto: Prototype }) {
   );
 }
 
-function CheckpointsPanel({ proto }: { proto: Prototype }) {
+function CheckpointsPanel({
+  proto,
+  onRestored,
+}: {
+  proto: Prototype;
+  onRestored: (p: Prototype) => void;
+}) {
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
   const [loading, setLoading] = useState(false);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -359,11 +411,29 @@ function CheckpointsPanel({ proto }: { proto: Prototype }) {
     load();
   }, [load]);
 
+  async function restore(cid: string) {
+    setRestoringId(cid);
+    try {
+      const res = await fetch(`/api/prototypes/${proto.id}/checkpoints/${cid}/restore`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Restore failed");
+      toast.success("Restored — code and database rolled back together.");
+      onRestored(data.prototype);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Restore failed");
+    } finally {
+      setRestoringId(null);
+    }
+  }
+
   return (
     <div className="h-full overflow-y-auto p-4">
       <div className="mb-3 flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          Each checkpoint pairs a git commit (code) with a Neon snapshot (database).
+        <p className="max-w-md text-sm text-muted-foreground">
+          A compound checkpoint binds the code (git commit), the database (Neon snapshot),
+          and the runnable surface. Restoring rolls back all of it together.
         </p>
         <Button variant="ghost" size="sm" onClick={load} disabled={loading}>
           <RefreshCw className={loading ? "animate-spin" : ""} /> Refresh
@@ -377,24 +447,131 @@ function CheckpointsPanel({ proto }: { proto: Prototype }) {
         <ul className="space-y-2">
           {checkpoints.map((c) => (
             <li key={c.id} className="rounded-lg border border-border bg-card p-3">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <span className="font-medium">{c.label}</span>
-                <span className="text-xs text-muted-foreground">
-                  {new Date(c.createdAt).toLocaleString()}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">
+                    {new Date(c.createdAt).toLocaleString()}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => restore(c.id)}
+                    disabled={restoringId !== null}
+                    title="Reset code + database to this checkpoint"
+                  >
+                    {restoringId === c.id ? (
+                      <Loader2 className="animate-spin" />
+                    ) : (
+                      <RotateCcw />
+                    )}
+                    Restore
+                  </Button>
+                </div>
               </div>
-              <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
-                <span className="inline-flex items-center gap-1">
+              <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                <span className="inline-flex items-center gap-1" title="Source revision (git commit)">
                   <GitBranch className="size-3" /> {c.gitSha ? c.gitSha.slice(0, 7) : "—"}
                 </span>
-                <span className="inline-flex items-center gap-1">
+                <span className="inline-flex items-center gap-1" title="Database state (Neon snapshot)">
                   <Database className="size-3" /> {c.snapshotId ? "snapshot" : "no snapshot"}
                 </span>
+                {c.neonProjectId && (
+                  <span className="font-mono opacity-70" title="Tenant Neon project">
+                    {c.neonProjectId}
+                  </span>
+                )}
               </div>
             </li>
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+const METRIC_LABELS: Record<string, string> = {
+  compute_unit_seconds: "Compute (CU·s)",
+  root_branch_bytes_month: "Root branch storage (byte·mo)",
+  child_branch_bytes_month: "Child branch storage (byte·mo)",
+  snapshot_storage_bytes_month: "Snapshot storage (byte·mo)",
+  public_network_transfer_bytes: "Egress (bytes)",
+};
+
+function formatMetric(key: string, value: number): string {
+  if (key === "compute_unit_seconds") return value.toLocaleString(undefined, { maximumFractionDigits: 1 });
+  if (key.includes("bytes")) {
+    const mb = value / (1024 * 1024);
+    return mb < 1024 ? `${mb.toFixed(1)} MB` : `${(mb / 1024).toFixed(2)} GB`;
+  }
+  return value.toLocaleString();
+}
+
+interface Usage {
+  from: string;
+  to: string;
+  projectId: string;
+  plan: string;
+  metrics: Record<string, number>;
+}
+
+function UsagePanel({ proto }: { proto: Prototype }) {
+  const [usage, setUsage] = useState<Usage | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/prototypes/${proto.id}/usage`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not load usage");
+      setUsage(data.usage);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load usage");
+    } finally {
+      setLoading(false);
+    }
+  }, [proto.id]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  return (
+    <div className="h-full overflow-y-auto p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <p className="max-w-md text-sm text-muted-foreground">
+          Billing-aligned consumption for this app&rsquo;s isolated Neon project (last 30 days,
+          v2 per-project metrics) — how a metered fleet bills each tenant.
+        </p>
+        <Button variant="ghost" size="sm" onClick={load} disabled={loading}>
+          <RefreshCw className={loading ? "animate-spin" : ""} /> Refresh
+        </Button>
+      </div>
+      {loading ? (
+        <div className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" /> Loading usage…
+        </div>
+      ) : error ? (
+        <p className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+          {error}
+        </p>
+      ) : usage ? (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {Object.keys(METRIC_LABELS).map((key) => (
+            <div key={key} className="rounded-lg border border-border bg-card p-4">
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <BarChart3 className="size-3" /> {METRIC_LABELS[key]}
+              </div>
+              <div className="mt-1 text-xl font-semibold">
+                {formatMetric(key, usage.metrics[key] ?? 0)}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

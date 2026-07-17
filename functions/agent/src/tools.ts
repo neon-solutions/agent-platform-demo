@@ -122,6 +122,10 @@ export function buildTools(proto: PrototypeRow) {
           label,
           gitSha: sha || null,
           snapshotId,
+          // Compound dimensions: bind the code + data + runnable surface.
+          neonProjectId: proto.neonProjectId ?? null,
+          neonBranchId: proto.neonBranchId ?? null,
+          sandboxUrl: proto.sandboxUrl ?? null,
         });
         return { id: row.id, label: row.label, gitSha: sha, snapshotId };
       },

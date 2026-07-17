@@ -31,6 +31,9 @@ export async function insertCheckpoint(input: {
   label: string;
   gitSha: string | null;
   snapshotId: string | null;
+  neonProjectId: string | null;
+  neonBranchId: string | null;
+  sandboxUrl: string | null;
 }): Promise<{ id: string; label: string; createdAt: Date }> {
   const rows = await db
     .insert(checkpoint)
