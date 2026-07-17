@@ -14,6 +14,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     return NextResponse.json({ usage });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    // The v2 consumption API is gated to Launch+ plans. On the free tier it's
+    // simply not available yet — surface that as a state, not a hard error.
+    if (/Launch plan|not available/i.test(message)) {
+      return NextResponse.json({ usage: null, planGated: true, reason: message });
+    }
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

@@ -517,16 +517,19 @@ interface Usage {
 
 function UsagePanel({ proto }: { proto: Prototype }) {
   const [usage, setUsage] = useState<Usage | null>(null);
+  const [planGated, setPlanGated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setPlanGated(false);
     try {
       const res = await fetch(`/api/prototypes/${proto.id}/usage`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Could not load usage");
+      setPlanGated(Boolean(data.planGated));
       setUsage(data.usage);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load usage");
@@ -558,6 +561,13 @@ function UsagePanel({ proto }: { proto: Prototype }) {
         <p className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
           {error}
         </p>
+      ) : planGated ? (
+        <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+          <p className="mb-1 font-medium text-foreground">Metering is a paid-plan feature</p>
+          Billing-aligned consumption (v2 per-project metrics) is available on Launch plans and
+          above. This app&rsquo;s database is on the free org — use <em>Upgrade to Paid</em> to move
+          it to the paid org and unlock per-tenant usage.
+        </div>
       ) : usage ? (
         <div className="grid gap-3 sm:grid-cols-2">
           {Object.keys(METRIC_LABELS).map((key) => (
