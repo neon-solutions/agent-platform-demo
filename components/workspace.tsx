@@ -654,18 +654,26 @@ function UsagePanel({ proto }: { proto: Prototype }) {
           it to the paid org and unlock per-tenant usage.
         </div>
       ) : usage ? (
-        <div className="grid gap-3 sm:grid-cols-2">
-          {Object.keys(METRIC_LABELS).map((key) => (
-            <div key={key} className="rounded-lg border border-border bg-card p-4">
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <BarChart3 className="size-3" /> {METRIC_LABELS[key]}
+        <>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {Object.keys(METRIC_LABELS).map((key) => (
+              <div key={key} className="rounded-lg border border-border bg-card p-4">
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <BarChart3 className="size-3" /> {METRIC_LABELS[key]}
+                </div>
+                <div className="mt-1 text-xl font-semibold">
+                  {formatMetric(key, usage.metrics[key] ?? 0)}
+                </div>
               </div>
-              <div className="mt-1 text-xl font-semibold">
-                {formatMetric(key, usage.metrics[key] ?? 0)}
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+          {Object.keys(usage.metrics).length === 0 && (
+            <p className="mt-3 text-xs text-muted-foreground">
+              No consumption recorded in this window yet — Neon&rsquo;s metering data can lag for a
+              bit after provisioning or an org transfer. The values fill in as the app is used.
+            </p>
+          )}
+        </>
       ) : null}
     </div>
   );
