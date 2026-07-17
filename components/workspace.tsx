@@ -17,7 +17,17 @@ import {
   Database,
   GitBranch,
   Loader2,
+  CreditCard,
+  Check,
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -69,14 +79,19 @@ export function Workspace({ initial }: { initial: Prototype }) {
 
 function TopBar({ proto, onUpdated }: { proto: Prototype; onUpdated: (p: Prototype) => void }) {
   const [upgrading, setUpgrading] = useState(false);
+  const [open, setOpen] = useState(false);
 
   async function upgrade() {
     setUpgrading(true);
     try {
+      // Payment is mocked for the demo — in a real platform you'd charge here
+      // (e.g. Stripe) before performing the org transfer.
+      await new Promise((r) => setTimeout(r, 900));
       const res = await fetch(`/api/prototypes/${proto.id}/upgrade`, { method: "POST" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Upgrade failed");
       onUpdated(data.prototype);
+      setOpen(false);
       toast.success("Upgraded — project transferred to the paid Neon org.");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Upgrade failed");
@@ -103,15 +118,54 @@ function TopBar({ proto, onUpdated }: { proto: Prototype; onUpdated: (p: Prototy
       </div>
       <div className="flex items-center gap-2">
         {proto.status === "ready" && proto.plan === "free" && (
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={upgrade}
-            disabled={upgrading}
-            title="Transfer this app's Neon project from the free org to the paid org"
-          >
-            {upgrading ? <Loader2 className="animate-spin" /> : <ArrowUpCircle />} Upgrade to Paid
-          </Button>
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+              <Button
+                variant="secondary"
+                size="sm"
+                title="Move this app's Neon project from the Agent Program free org to the paid org"
+              >
+                <ArrowUpCircle /> Upgrade to Paid
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Upgrade to Paid</DialogTitle>
+                <DialogDescription>
+                  Move this app to the Neon Agent Program paid org — unlocking metered,
+                  billing-aligned usage.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="rounded-lg border border-border p-4">
+                <div className="flex items-baseline gap-1">
+                  <span className="text-3xl font-semibold">$5</span>
+                  <span className="text-sm text-muted-foreground">/ month</span>
+                </div>
+                <ul className="mt-3 space-y-1.5 text-sm text-muted-foreground">
+                  <li className="flex items-center gap-2">
+                    <Check className="size-4 text-primary" /> Database moved to the paid Neon org
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <Check className="size-4 text-primary" /> Per-project usage metering (Usage tab)
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <Check className="size-4 text-primary" /> Your data & connection string are preserved
+                  </li>
+                </ul>
+              </div>
+
+              <p className="mt-3 text-xs text-muted-foreground">
+                Demo only — no real charge. This mocks the payment, then performs a real Neon
+                cross-org project transfer.
+              </p>
+
+              <Button className="mt-4 w-full" onClick={upgrade} disabled={upgrading}>
+                {upgrading ? <Loader2 className="animate-spin" /> : <CreditCard />}
+                {upgrading ? "Processing…" : "Pay $5/mo & Upgrade"}
+              </Button>
+            </DialogContent>
+          </Dialog>
         )}
         {proto.sandboxUrl && (
           <Button asChild variant="outline" size="sm">
