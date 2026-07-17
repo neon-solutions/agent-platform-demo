@@ -94,7 +94,11 @@ bun run dev               # http://localhost:3040
 
 ### Environment
 
-See `.env.example`. You need:
+See **[CONTRIBUTING.md](./CONTRIBUTING.md)** for a step-by-step, CLI-driven guide to
+gathering every secret (Neon org keys + control project via `neonctl`, Vercel team/
+project ids + a durable access token, Better Auth secret, and the deploy ordering).
+
+See `.env.example` for the full list. In short, you need:
 
 - A **control-plane Neon project** in `us-east-2` (Functions + AI Gateway require a new
   `us-east-2` project on a **paid** plan) — its pooled `DATABASE_URL`, org id, project id,
