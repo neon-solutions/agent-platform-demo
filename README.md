@@ -33,7 +33,8 @@ It's built entirely on the Neon backend platform + Vercel:
 
 1. **Sign up** → **Create an app** (choose a free- or paid-plan Neon org for its DB).
 2. The control app provisions an **isolated Neon Postgres project** for the app and boots a
-   **Vercel Sandbox** running a starter Express + `pg` app wired to that database.
+   **Vercel Sandbox** running a starter **Next.js + Drizzle + shadcn/ui** app
+   (on the Neon serverless driver) wired to that database.
 3. **Chat** with the coding agent. The browser calls the **Neon Function directly** with a
    short-lived Better Auth **JWT** (verified against the app's JWKS), so the app server is
    never in the path of the long agent stream. The agent edits files, runs commands, and

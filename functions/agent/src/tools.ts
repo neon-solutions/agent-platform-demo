@@ -54,15 +54,14 @@ export function buildTools(proto: PrototypeRow) {
     writeFile: createTool({
       id: "writeFile",
       description:
-        "Create or overwrite a file in the app with the given content, then restart the dev server so changes take effect. Use for all code edits.",
+        "Create or overwrite a file in the Next.js app with the given content. The dev server hot-reloads automatically — no restart needed. Use for all code edits (app/, lib/, components/).",
       inputSchema: z.object({
-        path: z.string().describe("Path relative to project root, e.g. server.js or public/index.html"),
+        path: z.string().describe("Path relative to project root, e.g. app/page.tsx or lib/schema.ts"),
         content: z.string().describe("The complete new file contents."),
       }),
       execute: async ({ path, content }) => {
         const sb = await sandbox();
         await sb.writeFiles([{ path, content }]);
-        await startDevServer(sb, databaseUrl);
         return { ok: true, path };
       },
     }),
@@ -83,7 +82,8 @@ export function buildTools(proto: PrototypeRow) {
 
     restartApp: createTool({
       id: "restartApp",
-      description: "Restart the app's dev server. Call after editing server code if needed.",
+      description:
+        "Restart the Next.js dev server. Only needed after installing dependencies or changing config/env — normal file edits hot-reload on their own.",
       inputSchema: z.object({}),
       execute: async () => {
         const sb = await sandbox();

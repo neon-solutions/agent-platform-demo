@@ -54,12 +54,14 @@ export function Workspace({ initial }: { initial: Prototype }) {
     };
   }, [proto.id, proto.status]);
 
+  const [turn, setTurn] = useState(0);
+
   return (
     <div className="flex h-screen flex-col">
       <TopBar proto={proto} onUpdated={setProto} />
       <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,420px)_1fr]">
-        <ChatPanel proto={proto} />
-        <PreviewPanel proto={proto} onUpdated={setProto} />
+        <ChatPanel proto={proto} onTurnComplete={() => setTurn((t) => t + 1)} />
+        <PreviewPanel proto={proto} onUpdated={setProto} refreshSignal={turn} />
       </div>
     </div>
   );
@@ -123,9 +125,10 @@ function TopBar({ proto, onUpdated }: { proto: Prototype; onUpdated: (p: Prototy
   );
 }
 
-function ChatPanel({ proto }: { proto: Prototype }) {
+function ChatPanel({ proto, onTurnComplete }: { proto: Prototype; onTurnComplete: () => void }) {
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const wasBusy = useRef(false);
 
   const { messages, sendMessage, status } = useChat({
     transport: new DefaultChatTransport({
@@ -148,6 +151,16 @@ function ChatPanel({ proto }: { proto: Prototype }) {
 
   const busy = status === "submitted" || status === "streaming";
   const ready = proto.status === "ready";
+
+  // When the agent finishes a turn, refresh the preview so edits show up.
+  useEffect(() => {
+    if (busy) {
+      wasBusy.current = true;
+    } else if (wasBusy.current) {
+      wasBusy.current = false;
+      onTurnComplete();
+    }
+  }, [busy, onTurnComplete]);
 
   const submit = useCallback(() => {
     const text = input.trim();
@@ -246,11 +259,29 @@ function MessageBubble({ role, parts }: { role: string; parts: unknown[] }) {
   );
 }
 
-function PreviewPanel({ proto, onUpdated }: { proto: Prototype; onUpdated: (p: Prototype) => void }) {
+function PreviewPanel({
+  proto,
+  onUpdated,
+  refreshSignal,
+}: {
+  proto: Prototype;
+  onUpdated: (p: Prototype) => void;
+  refreshSignal: number;
+}) {
   const [tab, setTab] = useState<"preview" | "checkpoints" | "usage">("preview");
   const [nonce, setNonce] = useState(0);
   const [waking, setWaking] = useState(false);
   const [liveUrl, setLiveUrl] = useState<string | null>(proto.sandboxUrl);
+
+  // Reload the preview iframe after each agent turn (Next.js has recompiled).
+  const firstSignal = useRef(true);
+  useEffect(() => {
+    if (firstSignal.current) {
+      firstSignal.current = false;
+      return;
+    }
+    setNonce((n) => n + 1);
+  }, [refreshSignal]);
 
   // Sandboxes suspend/stop on their idle timeout, so opening a preview after a
   // while can 502. Wake it (resume + restart the dev server) when ready.
