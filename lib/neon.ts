@@ -1,4 +1,4 @@
-import { createNeonClient } from "@neon/sdk";
+import { createNeonClient, type ProjectQuota } from "@neon/sdk";
 
 /**
  * Tenant tiers. Each vibe-coded app's database lives in one of two Neon orgs:
@@ -57,6 +57,19 @@ export interface ProvisionedDb {
 const TENANT_REGION = "aws-us-east-2";
 
 /**
+ * Guard-rail consumption quota applied to every tenant database this demo
+ * provisions. The platform hands a fresh Neon project to anyone who signs up
+ * to the public demo, so we cap per-branch storage and egress to keep the
+ * sponsored free/paid orgs from being abused. Mirrors the ceilings neon.new
+ * applies to its claimable projects. A zero or absent quota means "unlimited",
+ * so we set explicit values.
+ */
+const TENANT_PROJECT_QUOTA: ProjectQuota = {
+  logical_size_bytes: 100 * 1024 * 1024, // 100 MB max logical size per branch
+  data_transfer_bytes: 1000 * 1024 * 1024, // ~1 GB egress per billing period
+};
+
+/**
  * Provision an isolated Neon Postgres project for one vibe-coded app.
  * Returns a ready-to-use pooled connection string.
  */
@@ -71,6 +84,7 @@ export async function provisionTenantDb(
     name,
     region_id: TENANT_REGION,
     pg_version: 17,
+    settings: { quota: TENANT_PROJECT_QUOTA },
   });
 
   const listed = await sdk.branches.list(project.id).all();
