@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "npx -y neon dev",
-    "deploy": "npx -y neon deploy",
+    "dev": "npx -y neonctl@2.36.0 dev",
+    "deploy": "npx -y neonctl@2.36.0 deploy",
     "check-types": "tsc --noEmit"
   },
   "dependencies": {

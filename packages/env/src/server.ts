@@ -16,7 +16,7 @@ const vercelOrigin = getVercelOrigin();
 const runtimeEnv = {
   ...process.env,
   BETTER_AUTH_URL: process.env.BETTER_AUTH_URL ?? vercelOrigin,
-  CORS_ORIGIN: process.env.CORS_ORIGIN ?? vercelOrigin,
+  CORS_ORIGIN: process.env.CORS_ORIGIN ?? process.env.BETTER_AUTH_URL ?? vercelOrigin,
 };
 
 export const env = createEnv({

@@ -2,13 +2,14 @@ import dotenv from "dotenv";
 import { defineConfig } from "drizzle-kit";
 
 dotenv.config({
-  path: "../../apps/web/.env",
+  path: "../../.env",
 });
 
 export default defineConfig({
   schema: "./src/schema",
   out: "./src/migrations",
   dialect: "postgresql",
+  tablesFilter: ["user", "session", "account", "verification", "jwks", "prototype", "checkpoint"],
   dbCredentials: {
     url: process.env.DATABASE_URL || "",
   },

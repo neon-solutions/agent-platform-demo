@@ -44,8 +44,8 @@
     "deploy:prod": "vercel deploy --prod",
     "deploy:check": "vercel deploy --dry",
     "check": "oxlint && oxfmt --write",
-    "agent:dev": "bun run --filter @vibe/agent dev",
-    "agent:deploy": "bun run --filter @vibe/agent deploy"
+    "agent:dev": "bun --env-file=.env run --filter @vibe/agent dev",
+    "agent:deploy": "bun --env-file=.env run --filter @vibe/agent deploy"
   },
   "dependencies": {
     "@vibe/env": "workspace:*",
