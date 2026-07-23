@@ -7,6 +7,7 @@ node_modules
 dist
 build
 .next
+next-env.d.ts
 *.tsbuildinfo
 
 # Environment variables
@@ -42,6 +43,9 @@ lerna-debug.log*
 .alchemy
 .vercel
 
+# Neon
+.neon
+
 # Testing
 coverage
 .nyc_output
@@ -51,3 +55,8 @@ coverage
 .cache
 tmp
 temp
+
+# Vendored agent skills (local tooling). Only the agent-platforms skill —
+# the one this platform is built around — is committed; the rest stay local.
+.agents/skills/*
+!.agents/skills/neon-postgres-agent-platforms
