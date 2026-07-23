@@ -1,0 +1,34 @@
+{
+  "name": "@vibe/agent",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npx -y neon dev",
+    "deploy": "npx -y neon deploy",
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@mastra/ai-sdk": "^1.6.0",
+    "@mastra/core": "^1.50.0",
+    "@mastra/memory": "^1.22.0",
+    "@mastra/pg": "^1.15.0",
+    "@neon/config": "^0.9.4",
+    "@neon/env": "^0.11.3",
+    "@neon/functions": "^0.6.0",
+    "@vibe/db": "workspace:*",
+    "@vibe/neon": "workspace:*",
+    "@vibe/sandbox": "workspace:*",
+    "ai": "^6.0.222",
+    "drizzle-orm": "^0.45.2",
+    "hono": "^4.12.28",
+    "jose": "^6.2.3",
+    "pg": "^8.22.0",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.20.0",
+    "@vibe/config": "workspace:*",
+    "typescript": "catalog:"
+  }
+}
