@@ -1,0 +1,24 @@
+{
+  "name": "@vibe/auth",
+  "type": "module",
+  "exports": {
+    ".": {
+      "default": "./src/index.ts"
+    },
+    "./*": {
+      "default": "./src/*.ts"
+    }
+  },
+  "scripts": {},
+  "dependencies": {
+    "@vibe/db": "workspace:*",
+    "@vibe/env": "workspace:*",
+    "better-auth": "catalog:",
+    "dotenv": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@vibe/config": "workspace:*",
+    "typescript": "catalog:"
+  }
+}

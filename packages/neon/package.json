@@ -1,0 +1,25 @@
+{
+  "name": "@vibe/neon",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "default": "./src/index.ts"
+    },
+    "./*": {
+      "default": "./src/*.ts"
+    }
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@neon/sdk": "^1.1.1",
+    "@vibe/env": "workspace:*"
+  },
+  "devDependencies": {
+    "@vibe/config": "workspace:*",
+    "typescript": "catalog:"
+  }
+}

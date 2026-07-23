@@ -1,27 +1,53 @@
+# Dependencies
 node_modules
-.next
-out
+.pnp
+.pnp.js
+
+# Build outputs
 dist
 build
+.next
+*.tsbuildinfo
 
-# env
+# Environment variables
 .env
-.env.local
 .env*.local
-!.env.example
 
-# neon
-.neon
+# IDEs and editors
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
 
-# vercel
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# Turbo
+.turbo
+.nx
+
+# Better-T-Stack
+.alchemy
 .vercel
 
-# misc
-.DS_Store
-*.tsbuildinfo
-next-env.d.ts
+# Testing
+coverage
+.nyc_output
 
-# Vendored agent skills (local tooling). Only the agent-platforms skill —
-# the one this platform is built around — is committed; the rest stay local.
-.agents/skills/*
-!.agents/skills/neon-postgres-agent-platforms
+# Misc
+*.tgz
+.cache
+tmp
+temp

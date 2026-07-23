@@ -1,143 +1,145 @@
-# Vibe — a demo codegen platform on Neon
+# Vibe — a codegen platform built on Neon
 
-A minimal **codegen platform**: users describe an app in chat, and a coding
-agent vibe-codes it into a live, isolated environment — with every prototype
-getting its **own Postgres database** and **checkpoints that version code _and_
-data together**.
+A reference app for the [Neon Agent Program](https://neon.com/agents): users
+describe an app in chat, a coding agent builds it live, and **every app gets
+its own isolated Neon Postgres project** — with checkpoints that version code
+and data together.
 
-It's built entirely on the Neon backend platform + Vercel:
+| Layer            | Tech                                                                            |
+| ---------------- | ------------------------------------------------------------------------------- |
+| Web app          | **Next.js 15** (App Router) on **Vercel** (`apps/web`)                          |
+| API              | oRPC, mounted as Next route handlers (`packages/api`, `apps/web/src/app/api`)   |
+| Auth             | **Better Auth** + Drizzle on Neon Postgres (`packages/auth`, `packages/db`)     |
+| Coding agent     | **Mastra** on a **Neon Function** (`apps/agent`)                                |
+| LLM              | **Neon AI Gateway** (one credential, any model)                                 |
+| Per-app database | A **Neon project per app** via **@neon/sdk** (`packages/neon`)                  |
+| App runtime      | **Vercel Sandboxes** (`packages/sandbox`)                                       |
+| UI               | shadcn / Base UI / Tailwind v4 + [neon ui](https://ui.neon.com) (`packages/ui`) |
 
-| Layer | Tech |
-|---|---|
-| **Control app** (auth, dashboard, workspace UI) | Next.js 15 on **Vercel** |
-| **Auth + source of truth** | **Better Auth** (email/password + JWT) + **Drizzle** on **Neon Postgres** |
-| **Coding agent** | **Mastra** agent (memory + tools) hosted on a **Neon Function**, streamed to the UI via `@mastra/ai-sdk` + the AI SDK |
-| **LLM access** | **Neon AI Gateway** (one credential, any model — `neon/claude-sonnet-4-6`) |
-| **Per-app database** | An isolated **Neon Postgres** project per prototype, provisioned via **`@neon/sdk`** |
-| **Build & serve the app** | **Vercel Sandboxes** (a live dev server per prototype) |
-| **Checkpoints** | **git** commit (code) + **Neon snapshot** (database), restorable together |
+## Prerequisites
 
-## How it works
+- [Bun](https://bun.sh) 1.1+
+- A [Neon](https://console.neon.tech) account
+- A [Vercel](https://vercel.com) account with Sandboxes access
 
+### Neon side
+
+You need **one control-plane project** and **two tenant orgs**:
+
+1. **Control-plane project** — holds the app's own database (auth, prototypes,
+   checkpoints) and the AI Gateway. Create a project, note its id, and copy
+   the pooled connection string (`DATABASE_URL`).
+2. **Free tenant org** — a free-plan org where sponsored user databases are
+   provisioned. Create an org-scoped API key.
+3. **Paid tenant org** — a paid-plan org that apps move to on upgrade
+   (a real cross-org project transfer). Create an org-scoped API key.
+4. **Personal API key** — account-level, required for the cross-org transfer
+   (org keys cannot move projects between orgs).
+5. **AI Gateway** — enable it on the control project's main branch
+   (Console → project → branch → AI Gateway) and request the models you want.
+   The default is `neon/claude-sonnet-4-6`; `neon/gpt-oss-120b` works without
+   special access.
+
+### Vercel side
+
+1. A Vercel **team** and a **project** (used to scope sandboxes).
+2. A **personal access token** with sandbox permissions.
+3. Note the team id (`team_...`) and project id (`prj_...`).
+
+## Configure
+
+```bash
+cp .env.example .env
 ```
- Browser ──JWT──▶ Neon Function (Mastra coding agent)      ← no host timeout on the long stream
-    │                  │   tools: writeFile / runCommand / checkpoint / restore
-    │                  ├──▶ Vercel Sandbox   (the app's code + live dev server)
-    │                  └──▶ Neon AI Gateway  (LLM)  +  Neon snapshots (tenant DB)
-    ▼
- Next.js control app (Vercel) ── Better Auth + Drizzle ──▶ Neon Postgres (control plane)
-    │  provisions per-app:  @neon/sdk ──▶ tenant Neon project     Vercel SDK ──▶ sandbox
-    ▼
- Live preview (iframe of the sandbox)  +  checkpoint timeline
+
+Fill it in (each variable is documented inline):
+
+| Variable                                                                   | What                                                                   |
+| -------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `DATABASE_URL`                                                             | Pooled connection string of the control-plane project                  |
+| `BETTER_AUTH_SECRET`                                                       | `openssl rand -base64 32`                                              |
+| `BETTER_AUTH_URL` / `NEXT_PUBLIC_APP_URL`                                  | `http://localhost:3001` in dev                                         |
+| `NEON_CONTROL_API_KEY` / `NEON_CONTROL_ORG_ID` / `NEON_CONTROL_PROJECT_ID` | Control-plane org + project                                            |
+| `NEON_PERSONAL_API_KEY`                                                    | Cross-org transfer on upgrade                                          |
+| `NEON_FREE_ORG_ID` / `NEON_FREE_API_KEY`                                   | Sponsored tenant org                                                   |
+| `NEON_PAID_ORG_ID` / `NEON_PAID_API_KEY`                                   | Paid tenant org                                                        |
+| `VERCEL_TOKEN` / `VERCEL_TEAM_ID` / `VERCEL_PROJECT_ID`                    | Sandboxes                                                              |
+| `NEXT_PUBLIC_AGENT_URL`                                                    | Agent function URL (`http://localhost:8788` in dev, no trailing slash) |
+
+Push the schema once:
+
+```bash
+bun run db:push
 ```
 
-1. **Sign up** → **Create an app** (choose a free- or paid-plan Neon org for its DB).
-2. The control app provisions an **isolated Neon Postgres project** for the app and boots a
-   **Vercel Sandbox** running a starter **Next.js + Drizzle + shadcn/ui** app
-   (on the Neon serverless driver) wired to that database.
-3. **Chat** with the coding agent. The browser calls the **Neon Function directly** with a
-   short-lived Better Auth **JWT** (verified against the app's JWKS), so the app server is
-   never in the path of the long agent stream. The agent edits files, runs commands, and
-   restarts the dev server — the preview updates live.
-4. **Checkpoint** after a change: the agent commits the code (git, in the sandbox) **and**
-   snapshots the database (Neon). Restoring a checkpoint resets **both**, so the code always
-   matches its schema + data — the pattern from
-   [Build Checkpoints For Your Agent Using Neon Snapshots](https://neon.com/blog/checkpoints-for-agents-with-neon-snapshots).
+## Run locally
 
-## Neon-for-platforms patterns shown
+Two processes:
 
-This demo deliberately exercises the control-plane patterns from the
-[`neon-postgres-agent-platforms`](.agents/skills/neon-postgres-agent-platforms/SKILL.md)
-skill ([neondatabase/neon-for-agent-platforms](https://github.com/neondatabase/neon-for-agent-platforms)):
+```bash
+# 1. Web app — http://localhost:3001
+bun run dev
 
-- **Project-per-tenant.** Every app gets its own dedicated Neon project (complete
-  data/compute isolation), provisioned via `@neon/sdk`.
-- **Dual-org economics + upgrade.** New apps route to a **sponsored free org** or a
-  **paid org**. The workspace's **Upgrade to Paid** button performs a real
-  cross-org **project transfer** (free → paid), keeping the data and connection
-  string — using a **personal** API key, since org keys can't cross orgs.
-- **Compound checkpoints.** A checkpoint is a version record binding **source
-  revision** (git commit), **database state** (Neon snapshot + project/branch), and
-  the **runnable surface** (sandbox URL) — not a snapshot alone. One-click
-  **Restore** rolls back code *and* data together, then reconnects (handling the
-  branch-id rotation a finalized restore causes).
-- **Consumption metering.** The **Usage** tab reads billing-aligned **v2
-  per-project** consumption (`compute_unit_seconds`, storage, egress) — how a
-  metered fleet bills each tenant.
+# 2. Coding agent (Neon Function, local) — http://localhost:8788
+set -a; source .env; set +a; bun run agent:dev
+```
 
-## Architecture notes
+Next reads `.env` from the repo root on its own; `neon dev` does **not** —
+source it first for the agent. `NEXT_PUBLIC_*` values are inlined at
+build/dev start, so changing them means restarting the web process.
 
-- **Neon Functions** host the agent because a vibe-coding turn (many LLM + tool calls)
-  routinely outlasts lambda-style serverless limits. The function runs next to the control
-  Postgres, with `DATABASE_URL` and the AI Gateway credentials injected automatically.
-- **`neon.ts`** declares the branch's infrastructure as code — the AI Gateway and the `agent`
-  function — deployed with `neon deploy`.
-- **Tenant isolation:** each prototype's database is a separate Neon project (free vs paid
-  org, routed by the chosen plan), so apps never share data. Snapshots are taken per tenant
-  branch with that org's API key.
-- **Memory:** the Mastra agent keeps long-term memory in the control Postgres, threaded by
-  prototype id and scoped to the owning user.
+Open http://localhost:3001, type a prompt, and watch it provision a Neon
+project + sandbox and start building.
+
+### Test drive
+
+Paste this as the first agent prompt — it exercises the full Neon story in
+one turn: Drizzle schema on the tenant's own Neon Postgres, seeded data,
+server actions, and a compound checkpoint (git commit + Neon snapshot):
+
+```text
+Turn this into a guestbook. Define a `messages` table (id, name, message,
+created_at) with Drizzle in lib/schema.ts, keep ensureSchema() in lib/db.ts
+in sync, and use the Neon serverless driver that's already wired to
+DATABASE_URL. Seed three sample messages. List messages newest-first in a
+Server Component and add a form that inserts through a Server Action. When
+it works, create a checkpoint labeled "guestbook v1".
+```
+
+Then verify the platform loop:
+
+1. The preview shows the guestbook with the three seeded rows.
+2. **Checkpoints & usage** (database icon in the preview chrome) lists
+   `guestbook v1` with a sha and a snapshot dot.
+3. Add a message through the form, then **Restore** the checkpoint — the
+   new row disappears: code AND data rolled back together.
+
+## Deploy
+
+- **Web**: `bun run deploy:prod` (Vercel; sync env with `bun run env:production`).
+- **Agent**: `bun run agent:deploy` (Neon Functions), then point
+  `NEXT_PUBLIC_AGENT_URL` at the deployed function URL. The function gets the
+  `DATABASE_URL` of the branch it deploys to injected automatically — make
+  sure the schema is pushed to THAT branch (`bun run db:push` against it),
+  or the agent and the web app will read different databases.
 
 ## Layout
 
 ```
-app/                     Next.js control app (auth, dashboard, workspace)
-  api/prototypes/…       create / provision / token / checkpoints routes
-components/              UI (shadcn-style primitives + AI SDK chat workspace)
-lib/
-  auth.ts                Better Auth (email/password + JWT plugin)
-  db/                    Drizzle schema + client (control plane)
-  neon.ts                @neon/sdk wrapper: provision tenant DBs, snapshots
-  sandbox.ts             Vercel Sandbox helpers + starter app template
-  prototypes.ts          control-plane CRUD + provisioning orchestration
-neon.ts                  Neon IaC: AI Gateway + the agent function
-functions/agent/src/     the Mastra coding agent (Neon Function)
-  index.ts               Hono app: JWT verify + AI SDK UI stream
-  mastra.ts              Agent + Postgres-backed memory
-  tools.ts               file ops, commands, git+snapshot checkpoints
-  db.ts                  control-DB access from the function
+apps/web/src/app        Next.js App Router shell — pages, server layouts
+                        (auth guard), and the /api/auth + /api/rpc mounts
+apps/web/src/components The product UI (client components)
+apps/web/src/lib        server.ts: session + in-process oRPC caller
+apps/agent              Mastra coding agent (Hono on Neon Functions)
+packages/*              api · auth · db · env · neon · sandbox · ui
 ```
 
-## Local development
+## Troubleshooting
 
-```bash
-bun install
-cp .env.example .env      # fill in the values (see below)
-
-# Control plane schema
-bun run db:push           # or apply drizzle/0000_init.sql
-
-# Agent (Neon Function) — deploys the AI Gateway + function to the control branch
-neon deploy --env .env    # prints the function's invocation URL
-
-# Control app
-bun run dev               # http://localhost:3040
-```
-
-### Environment
-
-See **[CONTRIBUTING.md](./CONTRIBUTING.md)** for a step-by-step, CLI-driven guide to
-gathering every secret (Neon org keys + control project via `neonctl`, Vercel team/
-project ids + a durable access token, Better Auth secret, and the deploy ordering).
-
-See `.env.example` for the full list. In short, you need:
-
-- A **control-plane Neon project** in `us-east-2` (Functions + AI Gateway require a new
-  `us-east-2` project on a **paid** plan) — its pooled `DATABASE_URL`, org id, project id,
-  and an org API key.
-- Two **tenant Neon orgs** (a free-plan and a paid-plan org) with org API keys — the
-  databases behind vibe-coded apps.
-- A **Vercel** token, team id, and project id for Sandboxes (the control app can use OIDC
-  when deployed on Vercel; the agent function needs an explicit token).
-- `BETTER_AUTH_SECRET` and the deployed app URL (`BETTER_AUTH_URL` / `AGENT_AUTH_BASE_URL`),
-  which is the JWKS issuer/audience the agent verifies against.
-
-## Deploy
-
-- **Agent:** `neon deploy --env .env` (bundles `functions/agent` onto the control branch).
-- **Control app:** deploy to Vercel. This repo uses `npm install --legacy-peer-deps` on the
-  build host (see `vercel.json`). Set every env var in the Vercel project, and point
-  `AGENT_AUTH_BASE_URL` (the function's env) at the deployed app URL.
-
-> This is a demo. It provisions real Neon projects and Vercel Sandboxes; clean them up when
-> you're done experimenting.
+| Symptom           | Fix                                                                     |
+| ----------------- | ----------------------------------------------------------------------- |
+| Chat 401s         | Agent process died or can't reach the app's JWKS — restart `agent:dev`  |
+| Chat 404s         | Trailing slash in `NEXT_PUBLIC_AGENT_URL` — strip it and restart        |
+| `unknown model`   | Model not enabled on your gateway — set `AGENT_MODEL=neon/gpt-oss-120b` |
+| Empty usage panel | Metering lags after provisioning or a transfer — wait a few minutes     |
+| DB errors         | Check `DATABASE_URL`, re-run `bun run db:push`                          |
