@@ -1,0 +1,21 @@
+{
+  "name": "@vibe/skills",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "generate": "bun run scripts/generate.ts",
+    "check-types": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@vibe/config": "workspace:*",
+    "typescript": "catalog:",
+    "yaml": "^2.8.1"
+  }
+}

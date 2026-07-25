@@ -56,7 +56,14 @@ coverage
 tmp
 temp
 
-# Vendored agent skills (local tooling). Only the agent-platforms skill —
-# the one this platform is built around — is committed; the rest stay local.
+# Vendored agent skills. The Neon skills this platform is built on are
+# committed — they document the primitives the coding agent generates against
+# and are bundled into the agent at build time (see packages/skills). Refresh
+# with the `skills:sync` script. Anything else stays local.
 .agents/skills/*
+!.agents/skills/neon
+!.agents/skills/neon-postgres
+!.agents/skills/neon-ai-gateway
+!.agents/skills/neon-functions
+!.agents/skills/neon-object-storage
 !.agents/skills/neon-postgres-agent-platforms

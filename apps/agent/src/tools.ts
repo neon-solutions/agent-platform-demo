@@ -2,6 +2,7 @@ import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
 import { getAppSandbox, runInSandbox, startDevServer } from "@vibe/sandbox";
 import { snapshotTenantBranch, restoreTenantSnapshot, type Plan } from "@vibe/neon";
+import { readSkillFile, SKILL_NAMES, skillFilePaths } from "@vibe/skills";
 import {
   insertCheckpoint,
   listCheckpointsForPrototype,
@@ -29,6 +30,29 @@ export function buildTools(proto: PrototypeRow) {
   }
 
   return {
+    readSkill: createTool({
+      id: "readSkill",
+      description:
+        "Read a Neon agent skill — the authoritative documentation for a Neon primitive (Postgres, Functions, Object Storage, AI Gateway). Read the relevant skill BEFORE writing code against a primitive you have not used yet in this app; the skills describe the current APIs, which your training data may predate.",
+      inputSchema: z.object({
+        name: z.string().describe(`One of: ${SKILL_NAMES.join(", ")}.`),
+        path: z
+          .string()
+          .default("SKILL.md")
+          .describe("Which file to read. Defaults to the skill itself; some skills add references/*.md."),
+      }),
+      execute: async ({ name, path }) => {
+        const result = readSkillFile(name, path);
+        if (!result.ok) return { error: result.error };
+        return {
+          name: result.name,
+          path: result.path,
+          availablePaths: skillFilePaths(name),
+          content: result.content,
+        };
+      },
+    }),
+
     listFiles: createTool({
       id: "listFiles",
       description:

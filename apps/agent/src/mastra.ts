@@ -2,6 +2,7 @@ import { Mastra } from "@mastra/core/mastra";
 import { Agent } from "@mastra/core/agent";
 import { Memory } from "@mastra/memory";
 import { PostgresStore } from "@mastra/pg";
+import { skillCatalog } from "@vibe/skills";
 import { buildTools } from "./tools";
 import type { PrototypeRow } from "./db";
 
@@ -35,6 +36,9 @@ How to work:
 - Keep the app compiling and runnable after every change. If something breaks, read \`/tmp/app.log\` (\`runCommand("tail -n 40 /tmp/app.log")\`) and fix it. Before claiming the app is healthy or creating a checkpoint, make a real HTTP request to \`http://localhost:3000\`, confirm a 2xx response, and inspect the logs produced by that request.
 - After a meaningful, working change, call \`createCheckpoint\` with a short label — it commits the code (git) AND snapshots the database (Neon) so the user can restore this exact version, code and data together.
 - When the user asks to go back, use \`listCheckpoints\` then \`restoreCheckpoint\`.
+
+Neon skills — the authoritative docs for the primitives you build on. Your training data predates most of these APIs, so read the relevant skill with \`readSkill\` BEFORE writing code against a primitive for the first time in an app:
+${skillCatalog()}
 
 Be concise in chat. Briefly say what you changed and why. Don't paste entire files back to the user — the live preview shows the result. Prefer a clean, modern UI using the shadcn components and Tailwind.`;
 

@@ -1,0 +1,6 @@
+# Bun 1.3 defaults workspaces to the isolated (pnpm-style) linker. This repo —
+# and the Next.js / Neon Functions bundling it depends on — was built against
+# the hoisted layout, so pin it rather than letting the layout change with the
+# contributor's Bun version.
+[install]
+linker = "hoisted"
