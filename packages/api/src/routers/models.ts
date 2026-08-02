@@ -54,19 +54,15 @@ const effortsFor = (id: string): string[] =>
  * agent can actually run.
  */
 const UNCHATTABLE = [
-  // Responses-endpoint only: chat_completions hard-400s ("not available on
-  // the chat_completions endpoint", verified 2026-07-22).
-  /-codex/,
-  // gpt-oss-* and qwen35-* stream array-shaped content; the agent's
-  // gateway normalizer (apps/agent/src/normalize-gateway.ts) flattens it,
-  // so they are chat-capable again.
   // gemini-3-pro 404s upstream; gemini-2-5-* endpoints are deprecated
   // (400); gemini-3-flash serves but tool loops still 400 on the replay
   // leg without its thoughtSignature echoed (all re-verified 2026-07-22).
   /^gemini-/,
 ];
-// gpt-5* (non-codex): previously excluded for /responses 502 bursts — full
-// family re-verified green 2026-07-22 (chat, stream, tool round trip).
+// codex variants and gpt-oss-*/qwen35-* used to be filtered here: the former
+// are Responses-only, the latter stream array-shaped content. @neon/ai-sdk-
+// provider routes each id to the endpoint it is served on and normalizes the
+// array shape, so both are chat-capable now.
 
 /**
  * Models available on the branch's Neon AI Gateway, shaped for ModelSelect.

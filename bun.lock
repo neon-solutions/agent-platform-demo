@@ -27,6 +27,7 @@
         "@mastra/core": "^1.50.0",
         "@mastra/memory": "^1.22.0",
         "@mastra/pg": "^1.15.0",
+        "@neon/ai-sdk-provider": "0.7.2",
         "@neon/config": "^0.9.4",
         "@neon/env": "^0.11.3",
         "@neon/functions": "^0.6.0",
@@ -258,7 +259,13 @@
   "packages": {
     "@a2a-js/sdk": ["@a2a-js/sdk@0.3.14", "https://registry.npmjs.org/@a2a-js/sdk/-/sdk-0.3.14.tgz", { "dependencies": { "uuid": "^11.1.0" }, "peerDependencies": { "@bufbuild/protobuf": "^2.10.2", "@grpc/grpc-js": "^1.11.0", "express": "^4.21.2 || ^5.1.0" }, "optionalPeers": ["@bufbuild/protobuf", "@grpc/grpc-js", "express"] }, "sha512-F6Ew1AtPzCLhTn8h9yiqTe7DiDf6XVrSnq9V1YqSl9eWqPm6anMveTiKdCSb/76cW0YiJc24rNaUrVezFFHbqQ=="],
 
+    "@ai-sdk/anthropic": ["@ai-sdk/anthropic@3.0.103", "https://registry.npmjs.org/@ai-sdk/anthropic/-/anthropic-3.0.103.tgz", { "dependencies": { "@ai-sdk/provider": "3.0.14", "@ai-sdk/provider-utils": "4.0.40" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-aefFtdBHYowKccDaQdf2hX6kvIiqeShaOAPo3DujsaGH7m8lSW5GficJOhMCXpPBBv+4lZnEWrnIIyV5YeouDw=="],
+
     "@ai-sdk/gateway": ["@ai-sdk/gateway@3.0.155", "https://registry.npmjs.org/@ai-sdk/gateway/-/gateway-3.0.155.tgz", { "dependencies": { "@ai-sdk/provider": "3.0.14", "@ai-sdk/provider-utils": "4.0.40", "@vercel/oidc": "3.2.0" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-gP2i/z8gYqJNONZgUkfSe0u9iEvz+HJ/r+MKxmnJjSluPD9K9wwTs65KYyFl7pX8AEujnPny4Lq4l1ytPQD5TA=="],
+
+    "@ai-sdk/openai": ["@ai-sdk/openai@3.0.88", "https://registry.npmjs.org/@ai-sdk/openai/-/openai-3.0.88.tgz", { "dependencies": { "@ai-sdk/provider": "3.0.14", "@ai-sdk/provider-utils": "4.0.40" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-6M4+bxK/UMijDYK2ia1hCKYma1iajFYxHDlhbinFUdhH2WbFsjoZRMpSjEMlTOBptqmh2J1JclKnprGulF8WwQ=="],
+
+    "@ai-sdk/openai-compatible": ["@ai-sdk/openai-compatible@2.0.62", "https://registry.npmjs.org/@ai-sdk/openai-compatible/-/openai-compatible-2.0.62.tgz", { "dependencies": { "@ai-sdk/provider": "3.0.14", "@ai-sdk/provider-utils": "4.0.40" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-lRe54zvyIS1a60N8UVhnwKZRI5I+GSV8uhKkPpId+aiKO7z7UgSbNqFmXkBBMD3yc9UrLnQnATV2EQyXNhzEkA=="],
 
     "@ai-sdk/provider": ["@ai-sdk/provider@3.0.14", "https://registry.npmjs.org/@ai-sdk/provider/-/provider-3.0.14.tgz", { "dependencies": { "json-schema": "^0.4.0" } }, "sha512-5X1k57JBJ4H7H1QjX7CnJYAB1I19r/trVZTMcSms7/kLNZ8RaU4Nt2agcwZzv82Hfx6Q7/TOLU7agAKeFfc8cA=="],
 
@@ -583,6 +590,8 @@
     "@napi-rs/keyring-win32-x64-msvc": ["@napi-rs/keyring-win32-x64-msvc@1.2.0", "https://registry.npmjs.org/@napi-rs/keyring-win32-x64-msvc/-/keyring-win32-x64-msvc-1.2.0.tgz", { "os": "win32", "cpu": "x64" }, "sha512-xFlx/TsmqmCwNU9v+AVnEJgoEAlBYgzFF5Ihz1rMpPAt4qQWWkMd4sCyM1gMJ1A/GnRqRegDiQpwaxGUHFtFbA=="],
 
     "@napi-rs/wasm-runtime": ["@napi-rs/wasm-runtime@1.1.6", "https://registry.npmjs.org/@napi-rs/wasm-runtime/-/wasm-runtime-1.1.6.tgz", { "dependencies": { "@tybys/wasm-util": "^0.10.3" }, "peerDependencies": { "@emnapi/core": "^1.7.1", "@emnapi/runtime": "^1.7.1" } }, "sha512-ZLv/JdUfkvOy9eCnnBaGfiO+XimbjebAeO+MRQqD/B+FR1tnRN0tpKSJHRbE8sFfS6aqsXZ67TQjfwfsxULVbg=="],
+
+    "@neon/ai-sdk-provider": ["@neon/ai-sdk-provider@0.7.2", "https://registry.npmjs.org/@neon/ai-sdk-provider/-/ai-sdk-provider-0.7.2.tgz", { "dependencies": { "@ai-sdk/anthropic": "^3.0.82", "@ai-sdk/openai": "^3.0.69", "@ai-sdk/openai-compatible": "^2.0.48", "@ai-sdk/provider": "^3.0.10", "@ai-sdk/provider-utils": "^4.0.27" }, "peerDependencies": { "ai": "^6.0.0 || ^7.0.0-0", "zod": "^3.25.76 || ^4.1.8" } }, "sha512-MXH6MkKkP/EZ/J7mlXdG5Fd1jiQkPg8xdBjgMo/gRewHYRpbdk4KMALeb+7KtiSvveRXJwJvsXhLV1zuiqhP7A=="],
 
     "@neon/config": ["@neon/config@0.9.5", "https://registry.npmjs.org/@neon/config/-/config-0.9.5.tgz", { "dependencies": { "@neon/sdk": "1.2.0", "jiti": "^2.7.0", "zod": "^4.4.3" } }, "sha512-wxW0qqQfu0V8hAWgo5pGbv+9K6h8xeRZDzEMDebjHkN9Nk6Kw0WVcfNZKyxjaL4UXFQaI3wuqfYBdaisTXAUPw=="],
 

@@ -13,6 +13,7 @@
     "@mastra/core": "^1.50.0",
     "@mastra/memory": "^1.22.0",
     "@mastra/pg": "^1.15.0",
+    "@neon/ai-sdk-provider": "0.7.2",
     "@neon/config": "^0.9.4",
     "@neon/env": "^0.11.3",
     "@neon/functions": "^0.6.0",

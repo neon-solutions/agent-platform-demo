@@ -2,6 +2,7 @@ import { Mastra } from "@mastra/core/mastra";
 import { Agent } from "@mastra/core/agent";
 import { Memory } from "@mastra/memory";
 import { PostgresStore } from "@mastra/pg";
+import { neon } from "@neon/ai-sdk-provider";
 import { skillCatalog } from "@vibe/skills";
 import { buildTools } from "./tools";
 import type { PrototypeRow } from "./db";
@@ -14,8 +15,14 @@ import type { PrototypeRow } from "./db";
 const store = new PostgresStore({ id: "control", connectionString: process.env.DATABASE_URL! });
 export const memory = new Memory({ storage: store });
 
-/** One credential, any model — routed through the branch's Neon AI Gateway. */
-const MODEL = process.env.AGENT_MODEL ?? "neon/claude-sonnet-4-6";
+/**
+ * One credential, any model — routed through the branch's Neon AI Gateway by
+ * `@neon/ai-sdk-provider`, which picks the endpoint each catalog id is actually
+ * served on (OpenAI → Responses, everything else → unified chat completions)
+ * and drops per-model parameters the upstream would reject with a 400.
+ * Ids are bare catalog ids, as listed on https://neon.com/models.
+ */
+const MODEL = process.env.AGENT_MODEL ?? "gpt-oss-120b";
 
 export const CODER_AGENT_ID = "coder";
 
@@ -59,9 +66,8 @@ export function getMastra(proto: PrototypeRow, model?: string): Mastra {
     id: CODER_AGENT_ID,
     name: CODER_AGENT_ID,
     instructions: INSTRUCTIONS,
-    // The beta gateway 502s in bursts (retryable); absorb a few before
-    // surfacing anything to the user.
-    model: [{ model: resolvedModel, maxRetries: 4 }],
+    // Absorb the occasional transient upstream blip before surfacing it.
+    model: [{ model: neon(resolvedModel), maxRetries: 4 }],
     memory,
     tools: buildTools(proto),
   });

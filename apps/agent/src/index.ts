@@ -5,11 +5,6 @@ import { createUIMessageStreamResponse } from "ai";
 import { handleChatStream } from "@mastra/ai-sdk";
 import { toAISdkMessages } from "@mastra/ai-sdk/ui";
 import { getMastra, CODER_AGENT_ID, memory } from "./mastra";
-import { installGatewayNormalizer } from "./normalize-gateway";
-
-// Flatten array-shaped gateway responses (gpt-oss-*, qwen35-*) before the
-// AI SDK parses them — must wrap fetch before any model call happens.
-installGatewayNormalizer();
 import { getPrototypeForUser } from "./db";
 
 /**
@@ -85,21 +80,17 @@ app.post("/chat", async (c) => {
     model?: string;
     reasoning_effort?: string;
   }>();
-  // Gateway model override from the composer's ModelSelect; short ids only.
-  // Clamp models the agent can't run — responses-only, broken routes, or
-  // array-shaped streaming — to the env default: stale clients (cached
-  // pickers, old localStorage) must never resurrect a broken model.
-  // (gpt-5* non-codex re-verified green 2026-07-22; gpt-oss-*/qwen35-*
-  // array streaming handled by the gateway normalizer. Keep in sync with
-  // packages/api/src/routers/models.ts UNCHATTABLE.)
+  // Gateway model override from the composer's ModelSelect — a bare catalog
+  // id, which the Neon provider maps to the right endpoint on its own. Clamp
+  // models the agent still can't run to the env default, so a stale client
+  // (cached picker, old localStorage) can't resurrect a broken one. Keep in
+  // sync with packages/api/src/routers/models.ts UNCHATTABLE.
   const DENIED = [
-    /-codex/,
     /^gemini-/, // 3.x: thoughtSignature stripped by the AI SDK breaks tool loops
   ];
   const requested =
     typeof body.model === "string" && /^[\w.-]+$/.test(body.model) ? body.model : undefined;
-  const model =
-    requested && !DENIED.some((rule) => rule.test(requested)) ? `neon/${requested}` : undefined;
+  const model = requested && !DENIED.some((rule) => rule.test(requested)) ? requested : undefined;
   // Reasoning effort from the composer's ThinkingSelect — the client sends
   // a value verified against the model's supported set ("none" = thinking
   // fully off); anything outside the gateway vocabulary sends nothing.
@@ -124,16 +115,17 @@ app.post("/chat", async (c) => {
       messages: (body.messages ?? []) as never,
       memory: { thread: prototypeId, resource: userId },
       maxSteps: 25,
-      // Both keys: the model router registers the gateway as "neon", while
-      // the underlying openai-compatible model reads the "openai" bag.
-      ...(reasoningEffort
-        ? {
-            providerOptions: {
-              neon: { reasoningEffort },
-              openai: { reasoningEffort },
-            },
-          }
-        : {}),
+      providerOptions: {
+        // The gateway serves the Responses API statelessly — it keeps no
+        // stored items. Left to its default the AI SDK assumes OpenAI-style
+        // storage and replays earlier reasoning as `{type:"item_reference"}`,
+        // which the gateway can't resolve and answers with a 502 on the
+        // second tool-loop step. `store: false` makes it inline the encrypted
+        // reasoning in the request instead.
+        openai: { store: false, ...(reasoningEffort ? { reasoningEffort } : {}) },
+        // Chat-completions models read effort from the provider's own bag.
+        ...(reasoningEffort ? { neon: { reasoningEffort } } : {}),
+      },
     },
   });
 

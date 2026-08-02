@@ -23,9 +23,9 @@ export default defineConfig({
           // Public base URL of the control app — the agent verifies the
           // caller's Better Auth JWT against `${AUTH_BASE_URL}/api/auth/jwks`.
           AUTH_BASE_URL: process.env.AGENT_AUTH_BASE_URL ?? process.env.BETTER_AUTH_URL!,
-          // Gateway model override — accounts in the AI Gateway beta may not
-          // have the default claude model enabled.
-          AGENT_MODEL: process.env.AGENT_MODEL ?? "neon/claude-sonnet-4-6",
+          // Fallback catalog id, used only when the client sends no model.
+          // Open-weight, so it is served on every account in the beta.
+          AGENT_MODEL: process.env.AGENT_MODEL ?? "gpt-oss-120b",
           // Org-scoped Neon keys so the agent can snapshot/restore the tenant
           // database that backs each vibe-coded app.
           NEON_FREE_API_KEY: process.env.NEON_FREE_API_KEY!,
