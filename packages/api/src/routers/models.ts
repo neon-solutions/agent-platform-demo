@@ -1,7 +1,10 @@
 import { protectedProcedure } from "../index";
 
 const PROVIDER_NAMES: Record<string, string> = {
+  alibaba: "Alibaba",
   anthropic: "Anthropic",
+  databricks: "Databricks",
+  deepseek: "DeepSeek",
   google: "Google",
   meta: "Meta",
   "meta-llama": "Meta",

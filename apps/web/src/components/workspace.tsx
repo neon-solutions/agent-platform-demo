@@ -121,8 +121,13 @@ export function Workspace({
   const provisioningStarted = useRef(false);
 
   // Kick off provisioning + poll until the sandbox is ready.
+  //
+  // Deps are the id alone, deliberately: each poll advances `proto.status`
+  // (provisioning → booting → ready), so depending on the status would tear
+  // down the loop on its own first result — the ref guard then bails on the
+  // re-run and the app never learns it is ready.
   useEffect(() => {
-    if (proto.status === "ready" || proto.status === "error") {
+    if (initial.status === "ready" || initial.status === "error") {
       return;
     }
     if (provisioningStarted.current) {
@@ -132,12 +137,12 @@ export function Workspace({
 
     let cancelled = false;
     (async () => {
-      client.prototypes.provision({ id: proto.id }).catch(() => {
+      client.prototypes.provision({ id: initial.id }).catch(() => {
         // Poll below reports the error state.
       });
       while (!cancelled) {
         await new Promise((r) => setTimeout(r, POLL_MS));
-        const latest = await client.prototypes.get({ id: proto.id }).catch(() => null);
+        const latest = await client.prototypes.get({ id: initial.id }).catch(() => null);
         if (cancelled || !latest) {
           continue;
         }
@@ -150,7 +155,7 @@ export function Workspace({
     return () => {
       cancelled = true;
     };
-  }, [proto.id, proto.status]);
+  }, [initial.id, initial.status]);
 
   const [turn, setTurn] = useState(0);
   // Live activity, reflected in the preview chrome: the agent editing
