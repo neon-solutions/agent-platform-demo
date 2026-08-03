@@ -60,6 +60,7 @@ export function AppSettingsSections({
   onRenamed,
   onDeleted,
   onDeleteArmed,
+  onUpgradeArmed,
 }: {
   proto: Prototype;
   onRenamed: (proto: Prototype) => void;
@@ -67,6 +68,8 @@ export function AppSettingsSections({
   onDeleted?: () => void;
   /** Fired when the delete confirm opens (dialogs use it to step aside). */
   onDeleteArmed?: () => void;
+  /** Fired when the upgrade opens (dialogs use it to step aside). */
+  onUpgradeArmed?: () => void;
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -181,7 +184,7 @@ export function AppSettingsSections({
       </section>
 
       {/* Plan + upgrade — the cross-org transfer story lives here now. */}
-      <PlanSection onUpdated={onRenamed} proto={proto} />
+      <PlanSection onArmed={onUpgradeArmed} onUpdated={onRenamed} proto={proto} />
 
       {/* Danger zone — pinned to the bottom of flex-column surfaces
           (the drawer); inert in content-sized surfaces (the dialog). */}
@@ -229,9 +232,12 @@ export function AppSettingsSections({
 function PlanSection({
   proto,
   onUpdated,
+  onArmed,
 }: {
   proto: Prototype;
   onUpdated: (proto: Prototype) => void;
+  /** Lets a hosting dialog step aside before this one opens. */
+  onArmed?: () => void;
 }) {
   const [upgrading, setUpgrading] = useState(false);
   const [upgradeError, setUpgradeError] = useState<string | null>(null);
@@ -263,7 +269,10 @@ function PlanSection({
         <>
           <Button
             className="mt-3 w-full"
-            onClick={() => setOpen(true)}
+            onClick={() => {
+              onArmed?.();
+              setOpen(true);
+            }}
             size="sm"
             variant="secondary"
           >
