@@ -1,5 +1,5 @@
 export { neonClientFor, type OrgCreds, type Plan, tenantClient, tenantCreds } from "./client";
-export { CONSUMPTION_METRICS, getProjectConsumption } from "./consumption";
+export { CONSUMPTION_METRICS, getProjectConsumption, getProjectsConsumption } from "./consumption";
 export {
   deleteTenantProject,
   type ProvisionedDb,
