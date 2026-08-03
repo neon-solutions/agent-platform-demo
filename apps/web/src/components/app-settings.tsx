@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowUpCircle, Check, Copy } from "lucide-react";
+import { ArrowUpCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import type { Prototype } from "@vibe/db/schema";
 import { Button } from "@vibe/ui/components/button";
@@ -47,43 +47,6 @@ function connectionEntries(uri: string | null): ConnectionEntry[] {
   entries.push({ database, pooled: !pooled, role, uri: other.toString() });
 
   return entries;
-}
-
-/**
- * One infrastructure identifier: quiet label, mono value, copy affordance
- * that flips to a check for a beat. The ids users paste into the Neon
- * console, the API, or a support thread.
- */
-function IdRow({ label, value }: { label: string; value: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <div className="flex min-w-0 items-center gap-2 py-1" data-slot="id-row">
-      <span className="w-24 shrink-0 text-muted-foreground text-xs">{label}</span>
-      <span className="min-w-0 flex-1 truncate font-mono text-foreground/90 text-xs" title={value}>
-        {value}
-      </span>
-      <Button
-        aria-label={`Copy ${label}`}
-        className="size-6"
-        onClick={async () => {
-          await navigator.clipboard.writeText(value);
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1500);
-        }}
-        size="icon-sm"
-        variant="ghost"
-      >
-        {copied ? (
-          <Check aria-hidden className="size-3 text-primary" />
-        ) : (
-          <Copy aria-hidden className="size-3" />
-        )}
-      </Button>
-      <span aria-live="polite" className="sr-only">
-        {copied ? `${label} copied` : ""}
-      </span>
-    </div>
-  );
 }
 
 /**
@@ -215,22 +178,6 @@ export function AppSettingsSections({
             <p className="text-muted-foreground text-xs">Available once provisioning completes.</p>
           </>
         )}
-      </section>
-
-      {/* Identifiers: the coordinates of this app's infrastructure. */}
-      <section className="min-w-0">
-        <p className="mb-1 font-medium text-foreground text-xs">Identifiers</p>
-        <div className="divide-y divide-border/40">
-          <IdRow label="App ID" value={proto.id} />
-          {proto.neonProjectId ? <IdRow label="Neon project" value={proto.neonProjectId} /> : null}
-          {proto.neonBranchId ? <IdRow label="Neon branch" value={proto.neonBranchId} /> : null}
-          {proto.neonOrgId ? <IdRow label="Neon org" value={proto.neonOrgId} /> : null}
-          {/* No Sandbox row: the sandbox is keyed by the app id, so it only
-              ever repeats the value one line above it. */}
-          {proto.sandboxId && proto.sandboxId !== proto.id ? (
-            <IdRow label="Sandbox" value={proto.sandboxId} />
-          ) : null}
-        </div>
       </section>
 
       {/* Plan + upgrade — the cross-org transfer story lives here now. */}
