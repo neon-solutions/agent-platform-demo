@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { Checkpoint, Prototype } from "@vibe/db/schema";
 import { Button } from "@vibe/ui/components/button";
 import { DefaultChatTransport } from "ai";
-import { Database, Settings2, X } from "lucide-react";
+import { GitCommitVertical, Monitor, Settings2, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -23,6 +23,7 @@ import { ThinkingModelSelect } from "@/components/thinking-model-select/thinking
 import type { ThinkingEffort } from "@/components/thinking-select/thinking-select";
 import { PreviewFrame } from "@/components/preview-frame/preview-frame";
 import { ProvisioningStatus } from "@/components/provisioning-status/provisioning-status";
+import { WorkspaceTabs } from "@/components/workspace-tabs/workspace-tabs";
 import { type AppStatus, StatusBadge } from "@/components/status-badge/status-badge";
 import { Skeleton } from "@vibe/ui/components/skeleton";
 import {
@@ -164,8 +165,12 @@ export function Workspace({
   const [agentBusy, setAgentBusy] = useState(false);
   const [restoring, setRestoring] = useState(false);
 
-  // One right-hand drawer at a time: vitals or settings.
-  const [panel, setPanel] = useState<"details" | "settings" | null>(null);
+  // Settings stays a drawer; everything else is a tab now.
+  const [panel, setPanel] = useState<"settings" | null>(null);
+  const [tab, setTab] = useState("preview");
+  // Lifted so the tab label can carry the count without the panel
+  // rendering just to be counted.
+  const [checkpointCount, setCheckpointCount] = useState<number | undefined>(undefined);
 
   return (
     <div className="flex h-svh flex-col">
@@ -181,73 +186,84 @@ export function Workspace({
             proto={proto}
           />
         </div>
-        {/* Workspace tools live in the preview's own chrome — one control
-            surface, no floating overlay. Open-in-new-tab is built in. */}
-        <div className="relative min-h-0 min-w-0 flex-1">
-          <PreviewPanel
-            actions={
-              <TooltipProvider delay={300}>
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <Button
-                        aria-label="Checkpoints & usage"
-                        aria-pressed={panel === "details"}
-                        onClick={() => setPanel((p) => (p === "details" ? null : "details"))}
-                        size="icon-sm"
-                        variant="ghost"
-                      >
-                        <Database />
-                      </Button>
-                    }
+        {/* Checkpoints are a peer of the running app, not a drawer behind
+            an icon: versioning IS the story this demo tells, so it gets a
+            tab of its own with its count on the label. */}
+        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col px-4 pb-4">
+          <WorkspaceTabs
+            className="min-h-0 flex-1"
+            onValueChange={setTab}
+            tabs={[
+              {
+                actions: (
+                  <TooltipProvider delay={300}>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            aria-label="App settings"
+                            aria-pressed={panel === "settings"}
+                            onClick={() => setPanel((p) => (p === "settings" ? null : "settings"))}
+                            size="icon-sm"
+                            variant="ghost"
+                          >
+                            <Settings2 />
+                          </Button>
+                        }
+                      />
+                      <TooltipContent className="flex-col items-start gap-0.5" side="bottom">
+                        <span className="font-medium">App settings</span>
+                        <span className="text-muted-foreground">
+                          Rename, connection string, and teardown.
+                        </span>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                ),
+                content: (
+                  <div className="relative h-full">
+                    <PreviewPanel
+                      proto={proto}
+                      refreshSignal={turn}
+                      restoring={restoring}
+                      working={agentBusy}
+                    />
+                  </div>
+                ),
+                icon: <Monitor className="size-3.5" />,
+                id: "preview",
+                // The iframe IS the running app: unmounting it on a tab
+                // switch would reload the user's work.
+                keepMounted: true,
+                label: "preview",
+              },
+              {
+                content: (
+                  <CheckpointsPanel
+                    onCountChange={setCheckpointCount}
+                    onRestored={(p) => {
+                      setProto(p);
+                      setTurn((t) => t + 1);
+                    }}
+                    onRestoringChange={setRestoring}
+                    proto={proto}
+                    refreshSignal={turn}
                   />
-                  <TooltipContent className="flex-col items-start gap-0.5" side="bottom">
-                    <span className="font-medium">Checkpoints &amp; usage</span>
-                    <span className="text-muted-foreground">
-                      This app&rsquo;s checkpoints and usage metering.
-                    </span>
-                  </TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <Button
-                        aria-label="App settings"
-                        aria-pressed={panel === "settings"}
-                        onClick={() => setPanel((p) => (p === "settings" ? null : "settings"))}
-                        size="icon-sm"
-                        variant="ghost"
-                      >
-                        <Settings2 />
-                      </Button>
-                    }
-                  />
-                  <TooltipContent className="flex-col items-start gap-0.5" side="bottom">
-                    <span className="font-medium">App settings</span>
-                    <span className="text-muted-foreground">
-                      Rename, connection string, and teardown.
-                    </span>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            }
-            proto={proto}
-            refreshSignal={turn}
-            restoring={restoring}
-            working={agentBusy}
+                ),
+                count: checkpointCount,
+                icon: <GitCommitVertical className="size-3.5" />,
+                id: "checkpoints",
+                label: "checkpoints",
+              },
+              {
+                content: <UsagePanel proto={proto} />,
+                id: "usage",
+                label: "usage",
+              },
+            ]}
+            value={tab}
           />
         </div>
-        <DetailsDrawer
-          onOpenChange={(open) => setPanel(open ? "details" : null)}
-          onRestoringChange={setRestoring}
-          onUpdated={(p) => {
-            setProto(p);
-            setTurn((t) => t + 1);
-          }}
-          open={panel === "details"}
-          proto={proto}
-          refreshSignal={turn}
-        />
         <SettingsDrawer
           onClose={() => setPanel(null)}
           onRenamed={setProto}
@@ -312,79 +328,16 @@ function TopBar({ proto }: { proto: Prototype }) {
   );
 }
 
-/** The right rail: database, checkpoints, and usage — always visible. */
-/**
- * The app's vitals — database, checkpoints, usage — one dialog off the
- * topbar instead of a permanent rail: the workspace keeps its full width
- * for the conversation and the running app.
- */
-/* ─────────────────────────────────────────────────────
- * The vitals drawer: slides in from the right on a spring
- * while the preview — a flex sibling — resizes fluidly with
- * it (the running app reflows live, no overlay, no jump).
- * Restoring keeps the drawer open: the preview narrates the
- * restore right beside it.
- * ───────────────────────────────────────────────────── */
+/* ────────────────────────────────────────────────────
+ * The settings drawer slides in from the right on a spring
+ * while the tabbed pane — a flex sibling — resizes fluidly
+ * with it. Checkpoints and usage used to share this drawer;
+ * they are tabs now.
+ * ──────────────────────────────────────────────────── */
 const DRAWER = {
   width: 340,
   spring: { type: "spring" as const, stiffness: 300, damping: 34 },
 };
-
-function DetailsDrawer({
-  proto,
-  open,
-  onOpenChange,
-  onUpdated,
-  refreshSignal,
-  onRestoringChange,
-}: {
-  proto: Prototype;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onUpdated: (p: Prototype) => void;
-  refreshSignal: number;
-  onRestoringChange: (restoring: boolean) => void;
-}) {
-  const reduced = useReducedMotion();
-
-  return (
-    <motion.aside
-      animate={{ width: open ? DRAWER.width : 0 }}
-      aria-hidden={!open}
-      aria-label="Checkpoints and usage"
-      className="relative min-h-0 shrink-0 overflow-hidden"
-      data-slot="details-drawer"
-      initial={false}
-      transition={reduced ? { duration: 0 } : DRAWER.spring}
-    >
-      {/* Fixed inner width: content keeps its layout while the frame
-          animates — the panel slides, the type never squishes. */}
-      <div
-        className="flex h-full flex-col gap-6 overflow-y-auto border-border border-l p-5"
-        style={{ width: DRAWER.width }}
-      >
-        <div className="flex items-center justify-between">
-          <p className="font-medium text-sm">Checkpoints &amp; Usage</p>
-          <Button
-            aria-label="Close panel"
-            onClick={() => onOpenChange(false)}
-            size="icon-sm"
-            variant="ghost"
-          >
-            <X />
-          </Button>
-        </div>
-        <CheckpointsPanel
-          onRestored={onUpdated}
-          onRestoringChange={onRestoringChange}
-          proto={proto}
-          refreshSignal={refreshSignal}
-        />
-        <UsagePanel proto={proto} />
-      </div>
-    </motion.aside>
-  );
-}
 
 function ChatPanel({
   proto,
@@ -803,11 +756,14 @@ function CheckpointsPanel({
   onRestored,
   refreshSignal,
   onRestoringChange,
+  onCountChange,
 }: {
   proto: Prototype;
   onRestored: (p: Prototype) => void;
   refreshSignal: number;
   onRestoringChange: (restoring: boolean) => void;
+  /** Reports the count so the tab label can carry it. */
+  onCountChange?: (count: number) => void;
 }) {
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
   const [restoringId, setRestoringId] = useState<string | null>(null);
@@ -815,7 +771,8 @@ function CheckpointsPanel({
   const load = useCallback(async () => {
     const rows = await client.prototypes.checkpoints({ id: proto.id }).catch(() => []);
     setCheckpoints(rows);
-  }, [proto.id]);
+    onCountChange?.(rows.length);
+  }, [proto.id, onCountChange]);
 
   // Reload after each agent turn — the agent may have snapped a checkpoint.
   useEffect(() => {
@@ -840,8 +797,8 @@ function CheckpointsPanel({
     }
   }
 
-  // No projectId chip here: the Database card above already names it, and
-  // at rail width the extra chip collides with the sha + snapshot pair.
+  // No projectId chip here: settings already names the project, and the
+  // chip would collide with the sha + snapshot pair on a narrow row.
   const rows: TimelineCheckpoint[] = checkpoints.map((c) => ({
     createdAt: relativeTime(new Date(c.createdAt)),
     id: c.id,
@@ -851,11 +808,10 @@ function CheckpointsPanel({
   }));
 
   return (
-    // Grows to claim the drawer's spare height so Usage sits pinned at
-    // the bottom; the empty state stretches to hold the same space.
-    <section className="flex min-h-0 flex-1 flex-col pb-5">
-      <p className="mb-1 font-medium text-sm">Checkpoints</p>
-      <p className="mb-3 text-muted-foreground text-xs">Code and database, restored together.</p>
+    <section className="flex h-full min-h-0 flex-col">
+      <p className="mb-3 text-muted-foreground text-xs">
+        Every checkpoint holds the code and the database together, restored as one.
+      </p>
       <CheckpointTimeline
         checkpoints={rows}
         className="min-h-0 flex-1"
@@ -903,10 +859,12 @@ function UsagePanel({ proto }: { proto: Prototype }) {
   const empty = usage !== null && Object.keys(usage.metrics).length === 0;
 
   return (
-    <section className="border-border border-t pt-5">
-      <p className="mb-1 font-medium text-sm">Usage</p>
+    <section className="max-w-xl">
       <p className="mb-3 text-muted-foreground text-xs">
-        This app&rsquo;s Neon project, last 30 days.
+        This app&rsquo;s Neon project, last 30 days.{" "}
+        <a className="underline underline-offset-2 hover:text-foreground" href="/usage">
+          Account usage
+        </a>
       </p>
       {usageQuery.isLoading ? (
         <div className="space-y-2">
