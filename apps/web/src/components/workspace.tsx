@@ -7,7 +7,7 @@ import { Button } from "@vibe/ui/components/button";
 import { DefaultChatTransport } from "ai";
 import { GitCommitVertical, Monitor, Settings2, X } from "lucide-react";
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AgentChat } from "@/components/agent-chat/agent-chat";
 import {
@@ -23,9 +23,11 @@ import { ThinkingModelSelect } from "@/components/thinking-model-select/thinking
 import type { ThinkingEffort } from "@/components/thinking-select/thinking-select";
 import { PreviewFrame } from "@/components/preview-frame/preview-frame";
 import { ProvisioningStatus } from "@/components/provisioning-status/provisioning-status";
+import { UsageCard } from "@/components/usage-card/usage-card";
 import { WorkspaceTabs } from "@/components/workspace-tabs/workspace-tabs";
+import { useConsumptionHistory } from "@/hooks/use-consumption-history";
+import type { ConsumptionMetricName } from "@/lib/consumption";
 import { type AppStatus, StatusBadge } from "@/components/status-badge/status-badge";
-import { Skeleton } from "@vibe/ui/components/skeleton";
 import {
   Tooltip,
   TooltipContent,
@@ -34,7 +36,7 @@ import {
 } from "@vibe/ui/components/tooltip";
 import { TopNav } from "@/components/top-nav";
 import { cn } from "@/lib/utils";
-import { formatBytes, formatCount, relativeTime } from "@/lib/format";
+import { relativeTime } from "@/lib/format";
 import { client, orpc } from "@/utils/orpc";
 
 const AGENT_URL = (process.env.NEXT_PUBLIC_AGENT_URL ?? "").replace(/\/+$/, "");
@@ -830,79 +832,83 @@ function CheckpointsPanel({
   );
 }
 
-const METRIC_DEFS: {
-  id: string;
-  label: string;
-  format: "bytes" | "number";
-}[] = [
-  { format: "number", id: "compute_unit_seconds", label: "Compute (CU·s)" },
-  { format: "bytes", id: "root_branch_bytes_month", label: "Root storage" },
-  { format: "bytes", id: "child_branch_bytes_month", label: "Branch storage" },
-  {
-    format: "bytes",
-    id: "snapshot_storage_bytes_month",
-    label: "Snapshot storage",
-  },
-  { format: "bytes", id: "public_network_transfer_bytes", label: "Egress" },
-];
+const USAGE_WINDOW_DAYS = 14;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Rail-scale usage: quiet meter rows (label left, mono value right) instead
- * of dashboard metric cards — the rail is a readout, not a report.
+ * This app's own metering, on the same registry cards the account usage
+ * page uses — one visual language for one number, whichever surface you
+ * read it on. Scoped to this app's Neon project via the consumption proxy.
  */
 function UsagePanel({ proto }: { proto: Prototype }) {
-  const usageQuery = useQuery(orpc.prototypes.usage.queryOptions({ input: { id: proto.id } }));
-  const usage = usageQuery.data?.usage ?? null;
-  const planGated = usageQuery.data?.planGated ?? false;
-  // Nothing metered yet reads as dashes, not zeros — "no data" and
-  // "measured zero" are different claims.
-  const empty = usage !== null && Object.keys(usage.metrics).length === 0;
+  // Stable across renders: a fresh Date would change the request key and
+  // refetch forever.
+  const window = useMemo(() => {
+    const end = new Date();
+    return {
+      from: new Date(end.getTime() - USAGE_WINDOW_DAYS * DAY_MS).toISOString(),
+      to: end.toISOString(),
+    };
+  }, []);
+
+  const projectIds = useMemo(
+    () => (proto.neonProjectId ? [proto.neonProjectId] : []),
+    [proto.neonProjectId],
+  );
+
+  const { buckets, isLoading, error } = useConsumptionHistory({
+    enabled: projectIds.length > 0,
+    from: window.from,
+    granularity: "daily",
+    projectIds,
+    to: window.to,
+  });
+
+  const samples = (metric: ConsumptionMetricName) =>
+    buckets.map((bucket) => ({
+      label: new Date(bucket.start).toLocaleDateString(undefined, {
+        day: "numeric",
+        month: "short",
+      }),
+      value: bucket.values[metric] ?? 0,
+    }));
 
   return (
-    <section className="max-w-xl">
+    <section className="max-w-3xl">
       <p className="mb-3 text-muted-foreground text-xs">
-        This app&rsquo;s Neon project, last 30 days.{" "}
+        This app&rsquo;s Neon project, last {USAGE_WINDOW_DAYS} days.{" "}
         <a className="underline underline-offset-2 hover:text-foreground" href="/usage">
           Account usage
         </a>
       </p>
-      {usageQuery.isLoading ? (
-        <div className="space-y-2">
-          {METRIC_DEFS.map((def) => (
-            <Skeleton className="h-7 w-full" key={def.id} />
-          ))}
-        </div>
-      ) : planGated ? (
-        <p className="text-muted-foreground text-xs leading-relaxed">
-          Per-project metering comes with the paid org — upgrade this app and billing-aligned usage
-          appears here.
-        </p>
-      ) : usageQuery.error ? (
-        <p className="text-muted-foreground text-xs">Could not load usage.</p>
-      ) : (
-        <>
-          <dl className="divide-y divide-border/60 border-border/60 border-y">
-            {METRIC_DEFS.map((def) => {
-              const value = usage?.metrics[def.id] ?? 0;
-              return (
-                <div className="flex items-baseline justify-between gap-3 py-1.5" key={def.id}>
-                  <dt className="text-muted-foreground text-xs">{def.label}</dt>
-                  <dd className="font-mono text-xs tabular-nums">
-                    {empty || usage === null
-                      ? "–"
-                      : def.format === "bytes"
-                        ? formatBytes(value)
-                        : formatCount(value)}
-                  </dd>
-                </div>
-              );
-            })}
-          </dl>
-          <p className="mt-2 text-muted-foreground/70 text-xs leading-relaxed">
-            Metering can lag after provisioning or transfer.
-          </p>
-        </>
-      )}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <UsageCard
+          data={samples("compute_unit_seconds")}
+          error={error}
+          isLoading={isLoading}
+          metric="compute"
+          windowLabel={`${USAGE_WINDOW_DAYS}d`}
+        />
+        <UsageCard
+          data={samples("root_branch_bytes_month")}
+          error={error}
+          isLoading={isLoading}
+          label="Storage"
+          metric="storage"
+          windowLabel={`${USAGE_WINDOW_DAYS}d`}
+        />
+        <UsageCard
+          data={samples("public_network_transfer_bytes")}
+          error={error}
+          isLoading={isLoading}
+          label="Data out"
+          metric="written-data"
+          windowLabel={`${USAGE_WINDOW_DAYS}d`}
+        />
+      </div>
+      <p className="mt-3 text-muted-foreground/70 text-xs leading-relaxed">
+        Metering can lag after provisioning or transfer.
+      </p>
     </section>
   );
 }
