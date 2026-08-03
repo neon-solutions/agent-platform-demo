@@ -42,10 +42,14 @@ const STATUS_WASH: Record<AppStatus, string> = {
 
 /* ─────────────────────────────────────────────────────────
  * The dashboard grid card, on MetricCard's shell: hairline
- * border warming on hover with a neon underline sweeping in
- * under the name (transform-only, no layout shift). The
- * corner arrow inks in alongside; the status vocabulary
- * anchors the foot with the timestamp opposite.
+ * border warming on hover, the wash rising behind it, and
+ * the corner arrow inking in. The status vocabulary anchors
+ * the foot with the timestamp opposite.
+ *
+ * No underline sweep on the name: the name is truncated and
+ * sits beside a menu, so a rule running under a clipped
+ * string read as a decoration rather than an affordance.
+ * The border, wash, and arrow already carry the hover.
  *
  * The card is a link WITHOUT being an <a> wrapper: the
  * anchor is a stretched overlay, so `actions` can sit above
@@ -110,7 +114,7 @@ export const AppCard = ({
     <div className="pointer-events-none relative z-10 flex min-w-0 flex-col">
       <div className={cn("flex items-center gap-1.5", actions && "pr-8")}>
         <p
-          className="relative min-w-0 truncate font-mono font-semibold text-foreground text-sm after:absolute after:inset-x-0 after:bottom-0 after:h-px after:origin-left after:scale-x-0 after:bg-primary after:transition-transform after:duration-300 after:ease-out group-hover:after:scale-x-100 motion-reduce:after:transition-none"
+          className="min-w-0 truncate font-mono font-semibold text-foreground text-sm"
           title={name}
         >
           {name}
