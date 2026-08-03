@@ -6,7 +6,7 @@ import { AppSettingsDialog } from "@/components/app-settings-dialog";
 import { Button } from "@vibe/ui/components/button";
 import { useState } from "react";
 import { NewAppDialog } from "@/components/new-app-dialog";
-import { ProjectCard } from "@/components/project-card/project-card";
+import { AppCard } from "@/components/app-card/app-card";
 import { ProjectCardMenu } from "@/components/project-card-menu";
 import { EmptyState } from "@/components/empty-state/empty-state";
 import { MetricCard } from "@/components/metric-card/metric-card";
@@ -143,17 +143,21 @@ export default function DashboardPage() {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {rows.map((p) => (
-              <ProjectCard
-                actions={<ProjectCardMenu onOpen={() => setSettings({ open: true, proto: p })} />}
-                description={p.description ?? undefined}
-                href={`/app/${p.id}`}
-                key={p.id}
-                name={p.name}
-                plan={p.plan as AppPlan}
-                previewUrl={p.sandboxUrl}
-                status={toStatus(p.status)}
-                updatedAt={relativeTime(new Date(p.createdAt))}
-              />
+              // The menu sits outside the card: AppCard is one link end to
+              // end, so a nested button would be swallowed by it.
+              <div className="relative" key={p.id}>
+                <AppCard
+                  description={p.description ?? undefined}
+                  href={`/app/${p.id}`}
+                  name={p.name}
+                  plan={p.plan as AppPlan}
+                  status={toStatus(p.status)}
+                  updatedAt={relativeTime(new Date(p.createdAt))}
+                />
+                <div className="absolute top-2.5 right-2.5 z-10">
+                  <ProjectCardMenu onOpen={() => setSettings({ open: true, proto: p })} />
+                </div>
+              </div>
             ))}
           </div>
         )}

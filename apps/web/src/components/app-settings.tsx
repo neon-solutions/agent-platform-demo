@@ -10,9 +10,44 @@ import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/confirm-dialog/confirm-dialog";
 import { PlanBadge } from "@/components/status-badge/status-badge";
 import { UpgradeDialog } from "@/components/upgrade-dialog/upgrade-dialog";
-import { ConnectionString } from "@/components/connection-string/connection-string";
+import {
+  type ConnectionEntry,
+  DBConnectionCard,
+} from "@/components/db-connection-card/db-connection-card";
 import { TeardownOverlay } from "@/components/teardown-overlay";
 import { client, orpc } from "@/utils/orpc";
+
+/**
+ * Every shape of this app's one credential, for DBConnectionCard.
+ *
+ * The control plane stores the pooled URI only; the direct one is the same
+ * string without the `-pooler` host suffix, which is how Neon names the two
+ * endpoints of a branch. Role and database come off the URI, so the card
+ * offers exactly what exists rather than an invented menu.
+ */
+function connectionEntries(uri: string | null): ConnectionEntry[] {
+  if (!uri) {
+    return [];
+  }
+  let url: URL;
+  try {
+    url = new URL(uri);
+  } catch {
+    return [];
+  }
+  const role = decodeURIComponent(url.username);
+  const database = url.pathname.replace(/^\//u, "");
+  const pooled = url.hostname.includes("-pooler.");
+  const entries: ConnectionEntry[] = [{ database, pooled, role, uri }];
+
+  const other = new URL(uri);
+  other.hostname = pooled
+    ? url.hostname.replace("-pooler.", ".")
+    : url.hostname.replace(/^([^.]+)\./u, "$1-pooler.");
+  entries.push({ database, pooled: !pooled, role, uri: other.toString() });
+
+  return entries;
+}
 
 /**
  * One infrastructure identifier: quiet label, mono value, copy affordance
@@ -77,6 +112,7 @@ export function AppSettingsSections({
   const [saving, setSaving] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const connections = connectionEntries(proto.databaseUrl);
 
   const dirty =
     (name.trim() !== proto.name && name.trim().length > 0) ||
@@ -171,14 +207,16 @@ export function AppSettingsSections({
 
       {/* Connection info */}
       <section className="min-w-0">
-        <p className="mb-1.5 font-medium text-foreground text-xs">Connection string</p>
-        {proto.databaseUrl ? (
-          <ConnectionString value={proto.databaseUrl} />
+        {connections.length > 0 ? (
+          <DBConnectionCard connections={connections} defaultPooled label="Connection string" />
         ) : (
-          <p className="text-muted-foreground text-xs">Available once provisioning completes.</p>
+          <>
+            <p className="mb-1.5 font-medium text-foreground text-xs">Connection string</p>
+            <p className="text-muted-foreground text-xs">Available once provisioning completes.</p>
+          </>
         )}
         <p className="mt-1.5 text-muted-foreground/70 text-xs">
-          Pooled, straight to this app&rsquo;s own Neon Postgres project.
+          Straight to this app&rsquo;s own Neon Postgres project.
         </p>
       </section>
 
