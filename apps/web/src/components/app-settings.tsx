@@ -215,9 +215,6 @@ export function AppSettingsSections({
             <p className="text-muted-foreground text-xs">Available once provisioning completes.</p>
           </>
         )}
-        <p className="mt-1.5 text-muted-foreground/70 text-xs">
-          Straight to this app&rsquo;s own Neon Postgres project.
-        </p>
       </section>
 
       {/* Identifiers: the coordinates of this app's infrastructure. */}
@@ -228,7 +225,11 @@ export function AppSettingsSections({
           {proto.neonProjectId ? <IdRow label="Neon project" value={proto.neonProjectId} /> : null}
           {proto.neonBranchId ? <IdRow label="Neon branch" value={proto.neonBranchId} /> : null}
           {proto.neonOrgId ? <IdRow label="Neon org" value={proto.neonOrgId} /> : null}
-          {proto.sandboxId ? <IdRow label="Sandbox" value={proto.sandboxId} /> : null}
+          {/* No Sandbox row: the sandbox is keyed by the app id, so it only
+              ever repeats the value one line above it. */}
+          {proto.sandboxId && proto.sandboxId !== proto.id ? (
+            <IdRow label="Sandbox" value={proto.sandboxId} />
+          ) : null}
         </div>
       </section>
 
