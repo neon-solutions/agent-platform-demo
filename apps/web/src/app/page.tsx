@@ -2,7 +2,6 @@
 
 import { motion, useReducedMotion } from "motion/react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { type ReactNode, useRef, useState } from "react";
 import { AppCreator } from "@/components/app-creator/app-creator";
 import { AuthDialog } from "@/components/auth-dialog";
@@ -64,7 +63,6 @@ const EXAMPLES = [
  * provisioning happen after the prompt, not before.
  */
 export default function HomePage() {
-  const router = useRouter();
   const { data: session } = authClient.useSession();
   const [launching, setLaunching] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
@@ -74,7 +72,11 @@ export default function HomePage() {
 
   function go(prompt: string, plan: AppPlan) {
     setLaunching(true);
-    router.push(`/new?prompt=${encodeURIComponent(prompt)}&plan=${plan}`);
+    // Hard navigation: /new is a server component that reads the session
+    // cookie. A soft push can hit a router-cached, signed-out RSC payload
+    // right after auth and bounce the launch to /login instead of creating
+    // the app.
+    window.location.assign(`/new?prompt=${encodeURIComponent(prompt)}&plan=${plan}`);
   }
 
   function launch(prompt: string, plan: AppPlan) {
