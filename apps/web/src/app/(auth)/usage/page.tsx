@@ -24,6 +24,7 @@ import {
   STORAGE_METRICS,
   toBillingUnit,
 } from "@/lib/consumption";
+import { hasMeteredData, NOT_METERED } from "@/lib/usage";
 import { orpc } from "@/utils/orpc";
 
 const WINDOW_DAYS = 14;
@@ -137,6 +138,10 @@ export default function UsagePage() {
   // loading" as having apps: the cards render their own skeletons, and the
   // empty state only speaks once we know there is nothing to meter.
   const hasApps = provisioned.length > 0 || prototypes.isLoading;
+  // Zeros are a claim. Until Neon has actually metered something, say so
+  // once instead of printing "0" five times in five different shapes.
+  const metered = hasMeteredData(buckets);
+  const showFigures = loading || metered;
 
   return (
     <div className="flex min-h-svh flex-col">
@@ -147,11 +152,14 @@ export default function UsagePage() {
         <header className="mb-6">
           <h1 className="font-semibold text-2xl tracking-tight">Usage</h1>
           <p className="mt-1 text-muted-foreground text-sm">
-            Metered straight from Neon, across every app on your account.
+            Metered straight from Neon, across every app on your account.{" "}
+            <span className="text-muted-foreground/70">
+              Last {WINDOW_DAYS} days · {period}
+            </span>
           </p>
         </header>
 
-        {hasApps ? (
+        {hasApps && showFigures ? (
           <div className="space-y-6">
             <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <UsageCard
@@ -159,7 +167,6 @@ export default function UsagePage() {
                 error={error}
                 isLoading={loading}
                 metric="compute"
-                windowLabel={`${WINDOW_DAYS}d`}
               />
               <UsageCard
                 data={samples(buckets, "root_branch_bytes_month")}
@@ -167,7 +174,6 @@ export default function UsagePage() {
                 isLoading={loading}
                 label="Storage"
                 metric="storage"
-                windowLabel={`${WINDOW_DAYS}d`}
               />
               <UsageCard
                 data={samples(buckets, "public_network_transfer_bytes")}
@@ -175,7 +181,6 @@ export default function UsagePage() {
                 isLoading={loading}
                 label="Data out"
                 metric="written-data"
-                windowLabel={`${WINDOW_DAYS}d`}
               />
             </section>
 
@@ -239,8 +244,12 @@ export default function UsagePage() {
           </div>
         ) : (
           <EmptyState
-            description="Usage appears here once an app has a database behind it."
-            title="Nothing metered yet"
+            description={
+              hasApps
+                ? NOT_METERED.description
+                : "Usage appears here once an app has a database behind it."
+            }
+            title={hasApps ? NOT_METERED.title : "No apps yet"}
           />
         )}
       </main>
