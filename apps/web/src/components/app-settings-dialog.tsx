@@ -33,6 +33,7 @@ export function AppSettingsDialog({
           onDeleteArmed={() => onOpenChange(false)}
           onDeleted={onDeleted}
           onRenamed={onRenamed}
+          onUpgradeArmed={() => onOpenChange(false)}
           proto={proto}
         />
       </DialogContent>

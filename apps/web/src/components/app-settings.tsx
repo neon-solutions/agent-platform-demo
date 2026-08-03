@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowUpCircle, Check, Copy } from "lucide-react";
+import { ArrowUpCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import type { Prototype } from "@vibe/db/schema";
 import { Button } from "@vibe/ui/components/button";
@@ -10,45 +10,43 @@ import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/confirm-dialog/confirm-dialog";
 import { PlanBadge } from "@/components/status-badge/status-badge";
 import { UpgradeDialog } from "@/components/upgrade-dialog/upgrade-dialog";
-import { ConnectionString } from "@/components/connection-string/connection-string";
+import {
+  type ConnectionEntry,
+  DBConnectionCard,
+} from "@/components/db-connection-card/db-connection-card";
 import { TeardownOverlay } from "@/components/teardown-overlay";
 import { client, orpc } from "@/utils/orpc";
 
 /**
- * One infrastructure identifier: quiet label, mono value, copy affordance
- * that flips to a check for a beat. The ids users paste into the Neon
- * console, the API, or a support thread.
+ * Every shape of this app's one credential, for DBConnectionCard.
+ *
+ * The control plane stores the pooled URI only; the direct one is the same
+ * string without the `-pooler` host suffix, which is how Neon names the two
+ * endpoints of a branch. Role and database come off the URI, so the card
+ * offers exactly what exists rather than an invented menu.
  */
-function IdRow({ label, value }: { label: string; value: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <div className="flex min-w-0 items-center gap-2 py-1" data-slot="id-row">
-      <span className="w-24 shrink-0 text-muted-foreground text-xs">{label}</span>
-      <span className="min-w-0 flex-1 truncate font-mono text-foreground/90 text-xs" title={value}>
-        {value}
-      </span>
-      <Button
-        aria-label={`Copy ${label}`}
-        className="size-6"
-        onClick={async () => {
-          await navigator.clipboard.writeText(value);
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1500);
-        }}
-        size="icon-sm"
-        variant="ghost"
-      >
-        {copied ? (
-          <Check aria-hidden className="size-3 text-primary" />
-        ) : (
-          <Copy aria-hidden className="size-3" />
-        )}
-      </Button>
-      <span aria-live="polite" className="sr-only">
-        {copied ? `${label} copied` : ""}
-      </span>
-    </div>
-  );
+function connectionEntries(uri: string | null): ConnectionEntry[] {
+  if (!uri) {
+    return [];
+  }
+  let url: URL;
+  try {
+    url = new URL(uri);
+  } catch {
+    return [];
+  }
+  const role = decodeURIComponent(url.username);
+  const database = url.pathname.replace(/^\//u, "");
+  const pooled = url.hostname.includes("-pooler.");
+  const entries: ConnectionEntry[] = [{ database, pooled, role, uri }];
+
+  const other = new URL(uri);
+  other.hostname = pooled
+    ? url.hostname.replace("-pooler.", ".")
+    : url.hostname.replace(/^([^.]+)\./u, "$1-pooler.");
+  entries.push({ database, pooled: !pooled, role, uri: other.toString() });
+
+  return entries;
 }
 
 /**
@@ -62,6 +60,7 @@ export function AppSettingsSections({
   onRenamed,
   onDeleted,
   onDeleteArmed,
+  onUpgradeArmed,
 }: {
   proto: Prototype;
   onRenamed: (proto: Prototype) => void;
@@ -69,6 +68,8 @@ export function AppSettingsSections({
   onDeleted?: () => void;
   /** Fired when the delete confirm opens (dialogs use it to step aside). */
   onDeleteArmed?: () => void;
+  /** Fired when the upgrade opens (dialogs use it to step aside). */
+  onUpgradeArmed?: () => void;
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -77,6 +78,7 @@ export function AppSettingsSections({
   const [saving, setSaving] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const connections = connectionEntries(proto.databaseUrl);
 
   const dirty =
     (name.trim() !== proto.name && name.trim().length > 0) ||
@@ -171,31 +173,18 @@ export function AppSettingsSections({
 
       {/* Connection info */}
       <section className="min-w-0">
-        <p className="mb-1.5 font-medium text-foreground text-xs">Connection string</p>
-        {proto.databaseUrl ? (
-          <ConnectionString value={proto.databaseUrl} />
+        {connections.length > 0 ? (
+          <DBConnectionCard connections={connections} defaultPooled label="Connection string" />
         ) : (
-          <p className="text-muted-foreground text-xs">Available once provisioning completes.</p>
+          <>
+            <p className="mb-1.5 font-medium text-foreground text-xs">Connection string</p>
+            <p className="text-muted-foreground text-xs">Available once provisioning completes.</p>
+          </>
         )}
-        <p className="mt-1.5 text-muted-foreground/70 text-xs">
-          Pooled, straight to this app&rsquo;s own Neon Postgres project.
-        </p>
-      </section>
-
-      {/* Identifiers: the coordinates of this app's infrastructure. */}
-      <section className="min-w-0">
-        <p className="mb-1 font-medium text-foreground text-xs">Identifiers</p>
-        <div className="divide-y divide-border/40">
-          <IdRow label="App ID" value={proto.id} />
-          {proto.neonProjectId ? <IdRow label="Neon project" value={proto.neonProjectId} /> : null}
-          {proto.neonBranchId ? <IdRow label="Neon branch" value={proto.neonBranchId} /> : null}
-          {proto.neonOrgId ? <IdRow label="Neon org" value={proto.neonOrgId} /> : null}
-          {proto.sandboxId ? <IdRow label="Sandbox" value={proto.sandboxId} /> : null}
-        </div>
       </section>
 
       {/* Plan + upgrade — the cross-org transfer story lives here now. */}
-      <PlanSection onUpdated={onRenamed} proto={proto} />
+      <PlanSection onArmed={onUpgradeArmed} onUpdated={onRenamed} proto={proto} />
 
       {/* Danger zone — pinned to the bottom of flex-column surfaces
           (the drawer); inert in content-sized surfaces (the dialog). */}
@@ -243,9 +232,12 @@ export function AppSettingsSections({
 function PlanSection({
   proto,
   onUpdated,
+  onArmed,
 }: {
   proto: Prototype;
   onUpdated: (proto: Prototype) => void;
+  /** Lets a hosting dialog step aside before this one opens. */
+  onArmed?: () => void;
 }) {
   const [upgrading, setUpgrading] = useState(false);
   const [upgradeError, setUpgradeError] = useState<string | null>(null);
@@ -277,7 +269,10 @@ function PlanSection({
         <>
           <Button
             className="mt-3 w-full"
-            onClick={() => setOpen(true)}
+            onClick={() => {
+              onArmed?.();
+              setOpen(true);
+            }}
             size="sm"
             variant="secondary"
           >

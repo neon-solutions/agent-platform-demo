@@ -6,7 +6,7 @@ import { AppSettingsDialog } from "@/components/app-settings-dialog";
 import { Button } from "@vibe/ui/components/button";
 import { useState } from "react";
 import { NewAppDialog } from "@/components/new-app-dialog";
-import { ProjectCard } from "@/components/project-card/project-card";
+import { AppCard } from "@/components/app-card/app-card";
 import { ProjectCardMenu } from "@/components/project-card-menu";
 import { EmptyState } from "@/components/empty-state/empty-state";
 import { MetricCard } from "@/components/metric-card/metric-card";
@@ -143,14 +143,13 @@ export default function DashboardPage() {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {rows.map((p) => (
-              <ProjectCard
+              <AppCard
                 actions={<ProjectCardMenu onOpen={() => setSettings({ open: true, proto: p })} />}
                 description={p.description ?? undefined}
                 href={`/app/${p.id}`}
                 key={p.id}
                 name={p.name}
                 plan={p.plan as AppPlan}
-                previewUrl={p.sandboxUrl}
                 status={toStatus(p.status)}
                 updatedAt={relativeTime(new Date(p.createdAt))}
               />

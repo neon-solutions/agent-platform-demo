@@ -8,12 +8,13 @@ import { ToolGroup } from "@/components/agent-chat/agent-chat";
 import { AppCreator } from "@/components/app-creator/app-creator";
 import { CheckpointTimeline } from "@/components/checkpoint-timeline/checkpoint-timeline";
 import { ConfirmDialog } from "@/components/confirm-dialog/confirm-dialog";
-import { ConnectionString } from "@/components/connection-string/connection-string";
+import { DBConnectionCard } from "@/components/db-connection-card/db-connection-card";
 import { CreditPill, CreditPillSegment } from "@/components/credit-pill";
 import { ExamplePrompts } from "@/components/example-prompts";
 import { MetricCard } from "@/components/metric-card/metric-card";
 import { PreviewFrame } from "@/components/preview-frame/preview-frame";
-import { ProjectCard } from "@/components/project-card/project-card";
+import { AppCard } from "@/components/app-card/app-card";
+import { ProjectCardMenu } from "@/components/project-card-menu";
 import { PlanBadge, StatusBadge } from "@/components/status-badge/status-badge";
 import { ToolCallChip } from "@/components/tool-call-chip/tool-call-chip";
 import { TopNav } from "@/components/top-nav";
@@ -162,24 +163,25 @@ export default function GalleryPage() {
           </div>
         </Section>
 
-        <Section title="project-card — window states">
+        <Section title="app-card — dashboard states">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <ProjectCard
+            <AppCard
+              actions={<ProjectCardMenu onOpen={() => undefined} />}
+              description="Invoices, PDF export, and a client list."
               href="/dev/gallery"
               name="Live app with a long name that truncates"
               plan="paid"
-              previewUrl="/"
               status="ready"
               updatedAt="2m ago"
             />
-            <ProjectCard
+            <AppCard
               href="/dev/gallery"
               name="Provisioning"
               plan="free"
               status="provisioning"
               updatedAt="just now"
             />
-            <ProjectCard
+            <AppCard
               href="/dev/gallery"
               name="Failed"
               plan="free"
@@ -272,19 +274,29 @@ export default function GalleryPage() {
           </div>
         </Section>
 
-        <Section title="connection-string — masked / revealed / unparseable">
+        <Section title="db-connection-card — pooled / direct, four formats">
           <div className="max-w-xl space-y-3">
-            <Case label="masked (default)">
-              <ConnectionString value="postgresql://neondb_owner:s3cr3t-p4ss@ep-ancient-forest-ajg1nm4b-pooler.c-3.us-east-2.aws.neon.tech/neondb?sslmode=require" />
-            </Case>
-            <Case label="revealed">
-              <ConnectionString
-                defaultRevealed
-                value="postgresql://neondb_owner:s3cr3t-p4ss@ep-ancient-forest.neon.tech/neondb"
+            <Case label="pooled + direct">
+              <DBConnectionCard
+                connections={[
+                  {
+                    database: "neondb",
+                    pooled: true,
+                    role: "neondb_owner",
+                    uri: "postgresql://neondb_owner:s3cr3t-p4ss@ep-ancient-forest-ajg1nm4b-pooler.c-3.us-east-2.aws.neon.tech/neondb?sslmode=require",
+                  },
+                  {
+                    database: "neondb",
+                    pooled: false,
+                    role: "neondb_owner",
+                    uri: "postgresql://neondb_owner:s3cr3t-p4ss@ep-ancient-forest-ajg1nm4b.c-3.us-east-2.aws.neon.tech/neondb?sslmode=require",
+                  },
+                ]}
+                defaultPooled
               />
             </Case>
-            <Case label="not URL-shaped (fully masked)">
-              <ConnectionString value="host=1.2.3.4 password=hunter2" />
+            <Case label="loading">
+              <DBConnectionCard connections={[]} isLoading />
             </Case>
           </div>
         </Section>
