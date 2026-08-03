@@ -104,15 +104,13 @@ export const AppCard = ({
       data-slot="app-card-link"
       {...props}
     />
-    {actions ? (
-      <div className="absolute top-3 right-3 z-20" data-slot="app-card-actions">
-        {actions}
-      </div>
-    ) : null}
     {/* pointer-events-none keeps the text out of the link's way while
         leaving it selectable-looking; the overlay owns every click. */}
-    <div className="pointer-events-none relative z-10 flex min-w-0 flex-col">
-      <div className={cn("flex items-center gap-1.5", actions && "pr-8")}>
+    <div className="pointer-events-none relative z-20 flex min-w-0 flex-col">
+      {/* One row, one baseline: name, then the arrow it opens with, then
+          the menu pinned to the right edge. The menu is IN the row rather
+          than floating over the corner, so nothing drifts off the grid. */}
+      <div className="flex h-6 items-center gap-1.5">
         <p
           className="min-w-0 truncate font-mono font-semibold text-foreground text-sm"
           title={name}
@@ -123,9 +121,16 @@ export const AppCard = ({
           aria-hidden="true"
           className="size-3.5 shrink-0 text-muted-foreground/40 transition-colors group-hover:text-foreground"
         />
+        {actions ? (
+          // -mr-1 pulls the ghost button's own padding back onto the card's
+          // padding edge, so the glyph aligns with the text below it.
+          <div className="pointer-events-auto -mr-1 ml-auto shrink-0" data-slot="app-card-actions">
+            {actions}
+          </div>
+        ) : null}
       </div>
       {description ? (
-        <p className="mt-1.5 line-clamp-2 max-w-[48ch] text-pretty text-muted-foreground/80 text-xs leading-5">
+        <p className="mt-1 line-clamp-2 max-w-[48ch] text-pretty text-muted-foreground/80 text-xs leading-5">
           {description}
         </p>
       ) : null}
