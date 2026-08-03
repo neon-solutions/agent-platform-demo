@@ -27,6 +27,7 @@ import { UsageCard } from "@/components/usage-card/usage-card";
 import { WorkspaceTabs } from "@/components/workspace-tabs/workspace-tabs";
 import { useConsumptionHistory } from "@/hooks/use-consumption-history";
 import type { ConsumptionMetricName } from "@/lib/consumption";
+import { hasMeteredData, NOT_METERED } from "@/lib/usage";
 import { type AppStatus, StatusBadge } from "@/components/status-badge/status-badge";
 import {
   Tooltip,
@@ -873,42 +874,49 @@ function UsagePanel({ proto }: { proto: Prototype }) {
       value: bucket.values[metric] ?? 0,
     }));
 
+  const metered = hasMeteredData(buckets);
+
   return (
     <section className="max-w-3xl">
-      <p className="mb-3 text-muted-foreground text-xs">
+      <p className="mb-4 text-muted-foreground text-xs">
         This app&rsquo;s Neon project, last {USAGE_WINDOW_DAYS} days.{" "}
         <a className="underline underline-offset-2 hover:text-foreground" href="/usage">
           Account usage
         </a>
       </p>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <UsageCard
-          data={samples("compute_unit_seconds")}
-          error={error}
-          isLoading={isLoading}
-          metric="compute"
-          windowLabel={`${USAGE_WINDOW_DAYS}d`}
-        />
-        <UsageCard
-          data={samples("root_branch_bytes_month")}
-          error={error}
-          isLoading={isLoading}
-          label="Storage"
-          metric="storage"
-          windowLabel={`${USAGE_WINDOW_DAYS}d`}
-        />
-        <UsageCard
-          data={samples("public_network_transfer_bytes")}
-          error={error}
-          isLoading={isLoading}
-          label="Data out"
-          metric="written-data"
-          windowLabel={`${USAGE_WINDOW_DAYS}d`}
-        />
-      </div>
-      <p className="mt-3 text-muted-foreground/70 text-xs leading-relaxed">
-        Metering can lag after provisioning or transfer.
-      </p>
+      {isLoading || metered ? (
+        <>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <UsageCard
+              data={samples("compute_unit_seconds")}
+              error={error}
+              isLoading={isLoading}
+              metric="compute"
+            />
+            <UsageCard
+              data={samples("root_branch_bytes_month")}
+              error={error}
+              isLoading={isLoading}
+              label="Storage"
+              metric="storage"
+            />
+            <UsageCard
+              data={samples("public_network_transfer_bytes")}
+              error={error}
+              isLoading={isLoading}
+              label="Data out"
+              metric="written-data"
+            />
+          </div>
+          <p className="mt-3 text-muted-foreground/70 text-xs leading-relaxed">
+            Metering can lag after provisioning or transfer.
+          </p>
+        </>
+      ) : (
+        // Zeros are a claim. A card reading "0 hrs" with an empty chart
+        // well under it says "measured zero" — which is not what happened.
+        <EmptyState description={NOT_METERED.description} title={NOT_METERED.title} />
+      )}
     </section>
   );
 }
