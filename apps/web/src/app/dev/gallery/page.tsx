@@ -14,6 +14,7 @@ import { ExamplePrompts } from "@/components/example-prompts";
 import { MetricCard } from "@/components/metric-card/metric-card";
 import { PreviewFrame } from "@/components/preview-frame/preview-frame";
 import { AppCard } from "@/components/app-card/app-card";
+import { ProjectCardMenu } from "@/components/project-card-menu";
 import { PlanBadge, StatusBadge } from "@/components/status-badge/status-badge";
 import { ToolCallChip } from "@/components/tool-call-chip/tool-call-chip";
 import { TopNav } from "@/components/top-nav";
@@ -165,6 +166,7 @@ export default function GalleryPage() {
         <Section title="app-card — dashboard states">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <AppCard
+              actions={<ProjectCardMenu onOpen={() => undefined} />}
               description="Invoices, PDF export, and a client list."
               href="/dev/gallery"
               name="Live app with a long name that truncates"

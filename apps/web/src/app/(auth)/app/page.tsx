@@ -143,21 +143,16 @@ export default function DashboardPage() {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {rows.map((p) => (
-              // The menu sits outside the card: AppCard is one link end to
-              // end, so a nested button would be swallowed by it.
-              <div className="relative" key={p.id}>
-                <AppCard
-                  description={p.description ?? undefined}
-                  href={`/app/${p.id}`}
-                  name={p.name}
-                  plan={p.plan as AppPlan}
-                  status={toStatus(p.status)}
-                  updatedAt={relativeTime(new Date(p.createdAt))}
-                />
-                <div className="absolute top-2.5 right-2.5 z-10">
-                  <ProjectCardMenu onOpen={() => setSettings({ open: true, proto: p })} />
-                </div>
-              </div>
+              <AppCard
+                actions={<ProjectCardMenu onOpen={() => setSettings({ open: true, proto: p })} />}
+                description={p.description ?? undefined}
+                href={`/app/${p.id}`}
+                key={p.id}
+                name={p.name}
+                plan={p.plan as AppPlan}
+                status={toStatus(p.status)}
+                updatedAt={relativeTime(new Date(p.createdAt))}
+              />
             ))}
           </div>
         )}

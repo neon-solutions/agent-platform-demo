@@ -19,6 +19,12 @@ export type AppCardProps = Omit<ComponentProps<"a">, "children"> & {
   /** Last activity, already formatted, e.g. "2h ago". */
   updatedAt?: string;
   /**
+   * Controls that live INSIDE the card but outside its link — a menu,
+   * a stop button. Rendered in the top-right corner, above the link
+   * overlay, so clicking one never navigates.
+   */
+  actions?: ReactNode;
+  /**
    * Status-colored grain rising from the bottom edge. Pass a ReactNode
    * (e.g. a Paper Shaders GrainGradient) to replace the built-in CSS grain
    * inside the same positioned, status-tinted slot.
@@ -39,10 +45,16 @@ const STATUS_WASH: Record<AppStatus, string> = {
  * border warming on hover with a neon underline sweeping in
  * under the name (transform-only, no layout shift). The
  * corner arrow inks in alongside; the status vocabulary
- * anchors the foot with the timestamp opposite. The whole
- * card is one link.
+ * anchors the foot with the timestamp opposite.
+ *
+ * The card is a link WITHOUT being an <a> wrapper: the
+ * anchor is a stretched overlay, so `actions` can sit above
+ * it in the same corner and stay clickable. A nested button
+ * inside an anchor is both invalid HTML and unreachable —
+ * the anchor swallows the click.
  * ───────────────────────────────────────────────────────── */
 export const AppCard = ({
+  actions,
   className,
   description,
   name,
@@ -52,14 +64,13 @@ export const AppCard = ({
   wash = true,
   ...props
 }: AppCardProps) => (
-  <a
+  <div
     className={cn(
-      "group relative isolate flex min-h-[128px] cursor-pointer select-none flex-col overflow-hidden rounded-lg border border-border/60 bg-card p-4 no-underline shadow-none ring-0 transition-colors hover:border-border focus-visible:border-primary focus-visible:outline-none",
+      "group relative isolate flex min-h-[128px] select-none flex-col overflow-hidden rounded-lg border border-border/60 bg-card p-4 shadow-none ring-0 transition-colors hover:border-border focus-within:border-primary",
       className,
     )}
     data-slot="app-card"
     data-status={status}
-    {...props}
   >
     {wash === true ? (
       <div
@@ -82,24 +93,40 @@ export const AppCard = ({
         {wash}
       </div>
     ) : null}
-    <div className="flex items-center gap-1.5">
-      <p
-        title={name}
-        className="relative min-w-0 truncate font-mono font-semibold text-foreground text-sm after:absolute after:inset-x-0 after:bottom-0 after:h-px after:origin-left after:scale-x-0 after:bg-primary after:transition-transform after:duration-300 after:ease-out group-hover:after:scale-x-100 motion-reduce:after:transition-none"
-      >
-        {name}
-      </p>
-      <ArrowUpRightIcon
-        aria-hidden="true"
-        className="size-3.5 shrink-0 text-muted-foreground/40 transition-colors group-hover:text-foreground"
-      />
-    </div>
-    {description ? (
-      <p className="mt-1.5 line-clamp-2 max-w-[48ch] text-pretty text-muted-foreground/80 text-xs leading-5">
-        {description}
-      </p>
+    {/* The whole card is the hit area, minus whatever `actions` covers. */}
+    <a
+      aria-label={name}
+      className="absolute inset-0 z-0 cursor-pointer rounded-lg focus-visible:outline-none"
+      data-slot="app-card-link"
+      {...props}
+    />
+    {actions ? (
+      <div className="absolute top-3 right-3 z-20" data-slot="app-card-actions">
+        {actions}
+      </div>
     ) : null}
-    <div className="mt-auto flex items-center gap-1.5 pt-4">
+    {/* pointer-events-none keeps the text out of the link's way while
+        leaving it selectable-looking; the overlay owns every click. */}
+    <div className="pointer-events-none relative z-10 flex min-w-0 flex-col">
+      <div className={cn("flex items-center gap-1.5", actions && "pr-8")}>
+        <p
+          className="relative min-w-0 truncate font-mono font-semibold text-foreground text-sm after:absolute after:inset-x-0 after:bottom-0 after:h-px after:origin-left after:scale-x-0 after:bg-primary after:transition-transform after:duration-300 after:ease-out group-hover:after:scale-x-100 motion-reduce:after:transition-none"
+          title={name}
+        >
+          {name}
+        </p>
+        <ArrowUpRightIcon
+          aria-hidden="true"
+          className="size-3.5 shrink-0 text-muted-foreground/40 transition-colors group-hover:text-foreground"
+        />
+      </div>
+      {description ? (
+        <p className="mt-1.5 line-clamp-2 max-w-[48ch] text-pretty text-muted-foreground/80 text-xs leading-5">
+          {description}
+        </p>
+      ) : null}
+    </div>
+    <div className="pointer-events-none relative z-10 mt-auto flex items-center gap-1.5 pt-4">
       <StatusBadge status={status} />
       {plan ? <PlanBadge plan={plan} /> : null}
       {updatedAt ? (
@@ -108,5 +135,5 @@ export const AppCard = ({
         </span>
       ) : null}
     </div>
-  </a>
+  </div>
 );
