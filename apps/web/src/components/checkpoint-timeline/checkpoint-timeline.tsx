@@ -70,7 +70,10 @@ const ACTION_BASE =
   "h-6 shrink-0 rounded-full border border-border/60 px-2.5 text-muted-foreground text-xs transition-[opacity,translate,color,border-color] duration-200 ease-out hover:border-border hover:bg-transparent hover:text-foreground active:scale-[0.98] motion-reduce:translate-x-0 motion-reduce:transition-none";
 const ACTION_HIDDEN =
   "-translate-x-2 opacity-0 focus-visible:translate-x-0 focus-visible:opacity-100 group-focus-within:translate-x-0 group-focus-within:opacity-100 group-hover:translate-x-0 group-hover:opacity-100";
-const ACTION_RESTORING = "translate-x-0 opacity-100";
+// Holds full opacity against Button's disabled styling: this row is disabled
+// to stop a second press, and it is also the thing the user watches for the
+// length of the restore. The shimmer can only brighten from its base.
+const ACTION_RESTORING = "translate-x-0 opacity-100 disabled:opacity-100";
 const ACTION_LOCKED = "disabled:opacity-0";
 
 const actionClasses = (isRestoring: boolean, locked: boolean) => {

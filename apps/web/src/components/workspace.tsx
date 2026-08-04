@@ -960,7 +960,7 @@ function CheckpointsPanel({
           loadError ? (
             <EmptyState
               className="h-full"
-              description="The list could not be loaded, so this is not a count of zero."
+              description="Your checkpoints could not be listed."
               title="Checkpoints unavailable"
             />
           ) : hasLoaded ? (
