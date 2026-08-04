@@ -4,10 +4,10 @@ import { useChat } from "@ai-sdk/react";
 import { useQuery } from "@tanstack/react-query";
 import type { Checkpoint, Prototype } from "@vibe/db/schema";
 import { Button } from "@vibe/ui/components/button";
+import { Skeleton } from "@vibe/ui/components/skeleton";
 import { DefaultChatTransport } from "ai";
-import { Database, Settings2, X } from "lucide-react";
-import type { ReactNode } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { GitCommitVertical, Monitor, Settings2, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AgentChat } from "@/components/agent-chat/agent-chat";
 import {
@@ -15,6 +15,7 @@ import {
   CheckpointTimeline,
 } from "@/components/checkpoint-timeline/checkpoint-timeline";
 import { motion, useReducedMotion } from "motion/react";
+import Link from "next/link";
 import { AppSettingsSections } from "@/components/app-settings";
 import { EmptyState } from "@/components/empty-state/empty-state";
 import { ErrorDialog } from "@/components/error-dialog";
@@ -23,8 +24,18 @@ import { ThinkingModelSelect } from "@/components/thinking-model-select/thinking
 import type { ThinkingEffort } from "@/components/thinking-select/thinking-select";
 import { PreviewFrame } from "@/components/preview-frame/preview-frame";
 import { ProvisioningStatus } from "@/components/provisioning-status/provisioning-status";
+import { UsageCard } from "@/components/usage-card/usage-card";
+import { WorkspaceTabs } from "@/components/workspace-tabs/workspace-tabs";
+import { useConsumptionHistory } from "@/hooks/use-consumption-history";
+import {
+  type ConsumptionMetricName,
+  hoursBetween,
+  STORAGE_METRICS,
+  toAverageBytes,
+} from "@/lib/consumption";
+import { IDLE_RESTORE, restoreReducer } from "@/lib/restore-lifecycle";
+import { hasMeteredData, NOT_METERED } from "@/lib/usage";
 import { type AppStatus, StatusBadge } from "@/components/status-badge/status-badge";
-import { Skeleton } from "@vibe/ui/components/skeleton";
 import {
   Tooltip,
   TooltipContent,
@@ -33,10 +44,12 @@ import {
 } from "@vibe/ui/components/tooltip";
 import { TopNav } from "@/components/top-nav";
 import { cn } from "@/lib/utils";
-import { formatBytes, formatCount, relativeTime } from "@/lib/format";
+import { relativeTime } from "@/lib/format";
 import { client, orpc } from "@/utils/orpc";
 
 const AGENT_URL = (process.env.NEXT_PUBLIC_AGENT_URL ?? "").replace(/\/+$/, "");
+/** How long the restore loader waits for the app to paint before lifting. */
+const RESTORE_SETTLE_TIMEOUT_MS = 30_000;
 const DEFAULT_MODEL = "qwen3-next-80b-a3b-instruct";
 const MODEL_STORAGE_KEY = "vibe:model";
 const EFFORT_STORAGE_KEY = "vibe:effort";
@@ -162,10 +175,26 @@ export function Workspace({
   // (dot breathes, app stays visible) or a checkpoint restore (covered
   // by the loader — the dev server really is restarting).
   const [agentBusy, setAgentBusy] = useState(false);
-  const [restoring, setRestoring] = useState(false);
+  // The restore spans a server call, the preview's reload, and a bound on
+  // the wait; the order they finish in decides what the user sees, so the
+  // transitions are a reducer rather than a pair of flags set from effects.
+  const [restore, dispatchRestore] = useReducer(restoreReducer, IDLE_RESTORE);
 
-  // One right-hand drawer at a time: vitals or settings.
-  const [panel, setPanel] = useState<"details" | "settings" | null>(null);
+  // Settings stays a drawer; everything else is a tab now.
+  const [panel, setPanel] = useState<"settings" | null>(null);
+  const [tab, setTab] = useState("preview");
+  // Lifted so the tab label can carry the count without the panel
+  // rendering just to be counted.
+  const [checkpointCount, setCheckpointCount] = useState<number | undefined>(undefined);
+  // A checkpoint list that failed to load has no count to put on its label,
+  // and the panel saying so is hidden behind the tab nobody opened. It has
+  // to be reported on the surface the user is looking at.
+  const [checkpointError, setCheckpointError] = useState<string | null>(null);
+  const onPainted = useCallback(() => dispatchRestore({ type: "painted" }), []);
+  const onRestoreTimeout = useCallback(
+    () => dispatchRestore({ type: "timed-out" }),
+    [],
+  );
 
   return (
     <div className="flex h-svh flex-col">
@@ -181,33 +210,15 @@ export function Workspace({
             proto={proto}
           />
         </div>
-        {/* Workspace tools live in the preview's own chrome — one control
-            surface, no floating overlay. Open-in-new-tab is built in. */}
-        <div className="relative min-h-0 min-w-0 flex-1">
-          <PreviewPanel
+        {/* Checkpoints are a peer of the running app, not a drawer behind
+            an icon: versioning IS the story this demo tells, so it gets a
+            tab of its own with its count on the label. */}
+        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col px-4 pb-4">
+          <WorkspaceTabs
+            // Settings is scoped to the app, not to a pane: renaming or
+            // tearing down is available whichever tab is open.
             actions={
               <TooltipProvider delay={300}>
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <Button
-                        aria-label="Checkpoints & usage"
-                        aria-pressed={panel === "details"}
-                        onClick={() => setPanel((p) => (p === "details" ? null : "details"))}
-                        size="icon-sm"
-                        variant="ghost"
-                      >
-                        <Database />
-                      </Button>
-                    }
-                  />
-                  <TooltipContent className="flex-col items-start gap-0.5" side="bottom">
-                    <span className="font-medium">Checkpoints &amp; usage</span>
-                    <span className="text-muted-foreground">
-                      This app&rsquo;s checkpoints and usage metering.
-                    </span>
-                  </TooltipContent>
-                </Tooltip>
                 <Tooltip>
                   <TooltipTrigger
                     render={
@@ -231,23 +242,76 @@ export function Workspace({
                 </Tooltip>
               </TooltipProvider>
             }
-            proto={proto}
-            refreshSignal={turn}
-            restoring={restoring}
-            working={agentBusy}
+            className="min-h-0 flex-1"
+            // Only while that tab is closed: the panel says it too, with the
+            // retry, and two live regions announce the same sentence twice.
+            notice={
+              checkpointError && tab !== "checkpoints" ? (
+                <span role="alert">{checkpointError}</span>
+              ) : null
+            }
+            onValueChange={setTab}
+            tabs={[
+              {
+                content: (
+                  <div className="relative h-full">
+                    <PreviewPanel
+                      awaitingPaint={restore.awaitingPaint}
+                      onPainted={onPainted}
+                      onRestoreTimeout={onRestoreTimeout}
+                      proto={proto}
+                      refreshSignal={turn}
+                      restoring={restore.restoring}
+                      working={agentBusy}
+                    />
+                  </div>
+                ),
+                icon: <Monitor className="size-3.5" />,
+                id: "preview",
+                // The iframe IS the running app: unmounting it on a tab
+                // switch would reload the user's work.
+                keepMounted: true,
+                label: "preview",
+              },
+              {
+                content: (
+                  <CheckpointsPanel
+                    onCountChange={setCheckpointCount}
+                    onErrorChange={setCheckpointError}
+                    onRestoreFailed={() => dispatchRestore({ type: "failed" })}
+                    onRestoreStarted={() => dispatchRestore({ type: "started" })}
+                    onRestored={(p) => {
+                      setProto(p);
+                      setTurn((t) => t + 1);
+                      dispatchRestore({ type: "committed" });
+                      // The restore's payoff is the app reverting, and that
+                      // renders in the preview. Staying here would put the
+                      // demo's whole point on a hidden panel.
+                      setTab("preview");
+                    }}
+                    proto={proto}
+                    refreshSignal={turn}
+                  />
+                ),
+                count: checkpointCount,
+                countLabel: "checkpoints",
+                icon: <GitCommitVertical className="size-3.5" />,
+                id: "checkpoints",
+                // Mounted from the start so the count is on the label
+                // before the tab is ever opened — the count is the reason
+                // to open it.
+                keepMounted: true,
+                label: "checkpoints",
+              },
+              {
+                content: <UsagePanel proto={proto} />,
+                id: "usage",
+                label: "usage",
+              },
+            ]}
+            value={tab}
           />
         </div>
-        <DetailsDrawer
-          onOpenChange={(open) => setPanel(open ? "details" : null)}
-          onRestoringChange={setRestoring}
-          onUpdated={(p) => {
-            setProto(p);
-            setTurn((t) => t + 1);
-          }}
-          open={panel === "details"}
-          proto={proto}
-          refreshSignal={turn}
-        />
         <SettingsDrawer
           onClose={() => setPanel(null)}
           onRenamed={setProto}
@@ -312,79 +376,16 @@ function TopBar({ proto }: { proto: Prototype }) {
   );
 }
 
-/** The right rail: database, checkpoints, and usage — always visible. */
-/**
- * The app's vitals — database, checkpoints, usage — one dialog off the
- * topbar instead of a permanent rail: the workspace keeps its full width
- * for the conversation and the running app.
- */
-/* ─────────────────────────────────────────────────────
- * The vitals drawer: slides in from the right on a spring
- * while the preview — a flex sibling — resizes fluidly with
- * it (the running app reflows live, no overlay, no jump).
- * Restoring keeps the drawer open: the preview narrates the
- * restore right beside it.
- * ───────────────────────────────────────────────────── */
+/* ────────────────────────────────────────────────────
+ * The settings drawer slides in from the right on a spring
+ * while the tabbed pane — a flex sibling — resizes fluidly
+ * with it. Checkpoints and usage used to share this drawer;
+ * they are tabs now.
+ * ──────────────────────────────────────────────────── */
 const DRAWER = {
   width: 340,
   spring: { type: "spring" as const, stiffness: 300, damping: 34 },
 };
-
-function DetailsDrawer({
-  proto,
-  open,
-  onOpenChange,
-  onUpdated,
-  refreshSignal,
-  onRestoringChange,
-}: {
-  proto: Prototype;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onUpdated: (p: Prototype) => void;
-  refreshSignal: number;
-  onRestoringChange: (restoring: boolean) => void;
-}) {
-  const reduced = useReducedMotion();
-
-  return (
-    <motion.aside
-      animate={{ width: open ? DRAWER.width : 0 }}
-      aria-hidden={!open}
-      aria-label="Checkpoints and usage"
-      className="relative min-h-0 shrink-0 overflow-hidden"
-      data-slot="details-drawer"
-      initial={false}
-      transition={reduced ? { duration: 0 } : DRAWER.spring}
-    >
-      {/* Fixed inner width: content keeps its layout while the frame
-          animates — the panel slides, the type never squishes. */}
-      <div
-        className="flex h-full flex-col gap-6 overflow-y-auto border-border border-l p-5"
-        style={{ width: DRAWER.width }}
-      >
-        <div className="flex items-center justify-between">
-          <p className="font-medium text-sm">Checkpoints &amp; Usage</p>
-          <Button
-            aria-label="Close panel"
-            onClick={() => onOpenChange(false)}
-            size="icon-sm"
-            variant="ghost"
-          >
-            <X />
-          </Button>
-        </div>
-        <CheckpointsPanel
-          onRestored={onUpdated}
-          onRestoringChange={onRestoringChange}
-          proto={proto}
-          refreshSignal={refreshSignal}
-        />
-        <UsagePanel proto={proto} />
-      </div>
-    </motion.aside>
-  );
-}
 
 function ChatPanel({
   proto,
@@ -715,36 +716,57 @@ export function ProvisioningFeed({ proto }: { proto: Prototype }) {
 }
 
 function PreviewPanel({
-  actions,
   proto,
   refreshSignal,
   working,
   restoring,
+  awaitingPaint,
+  onPainted,
+  onRestoreTimeout,
 }: {
-  /** Extra controls merged into the frame's header, before the built-ins. */
-  actions?: ReactNode;
   proto: Prototype;
   refreshSignal: number;
   working: boolean;
   restoring: boolean;
+  /** A restore's reload is on its way; the loader waits for it to paint. */
+  awaitingPaint: boolean;
+  onPainted: () => void;
+  onRestoreTimeout: () => void;
 }) {
   const [nonce, setNonce] = useState(0);
   const [waking, setWaking] = useState(false);
   const [liveUrl, setLiveUrl] = useState<string | null>(proto.sandboxUrl);
+
   // Derived, not snapshotted: provisioning finishes AFTER mount, so the
   // polled sandboxUrl must be able to mount the frame on its own — wake()
   // then freshens the URL, it is not the gatekeeper.
   const url = liveUrl ?? proto.sandboxUrl;
 
   // Reload the preview iframe after each agent turn (Next.js recompiled).
-  const firstSignal = useRef(true);
+  // Folded into the key rather than translated through an effect: the effect
+  // ran a commit later than the state that raised the restore loader, and
+  // the old frame finishing its load in that gap would settle a restore
+  // whose reload had not started.
+  const reloadSignal = refreshSignal + nonce;
+
+  /**
+   * An app that never repaints must not leave the restore loader up for
+   * good; lifting the scrim shows whatever the sandbox is actually serving.
+   *
+   * The wait runs from the reload, which is what `awaitingPaint` marks. A
+   * bound covering the server call instead would fire mid-restore — it runs
+   * a git reset, an npm install, and a dev-server boot — and drop the user
+   * onto the blank frame this exists to prevent.
+   */
   useEffect(() => {
-    if (firstSignal.current) {
-      firstSignal.current = false;
+    if (!awaitingPaint) {
       return;
     }
-    setNonce((n) => n + 1);
-  }, [refreshSignal]);
+
+    const timer = window.setTimeout(onRestoreTimeout, RESTORE_SETTLE_TIMEOUT_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [awaitingPaint, onRestoreTimeout]);
 
   // Sandboxes suspend/stop on their idle timeout, so opening a preview after
   // a while can 502. Wake it (resume + restart the dev server) when ready.
@@ -772,10 +794,10 @@ function PreviewPanel({
 
   return proto.status === "ready" && url ? (
     <PreviewFrame
-      actions={actions}
       className="h-full"
       onRestart={wake}
-      reloadSignal={nonce}
+      onFrameLoad={awaitingPaint ? onPainted : undefined}
+      reloadSignal={reloadSignal}
       src={url}
       state={restoring || waking ? "waking" : "ready"}
       title={proto.name}
@@ -802,20 +824,63 @@ function CheckpointsPanel({
   proto,
   onRestored,
   refreshSignal,
-  onRestoringChange,
+  onRestoreStarted,
+  onRestoreFailed,
+  onCountChange,
+  onErrorChange,
 }: {
   proto: Prototype;
   onRestored: (p: Prototype) => void;
   refreshSignal: number;
-  onRestoringChange: (restoring: boolean) => void;
+  onRestoreStarted: () => void;
+  onRestoreFailed: () => void;
+  /** Reports the count so the tab label can carry it. */
+  onCountChange?: (count: number) => void;
+  /** Reports a failed load, which has no count to report. */
+  onErrorChange?: (error: string | null) => void;
 }) {
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
   const [restoringId, setRestoringId] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  // "No checkpoints yet" before the first response is the same claim as
+  // reporting a failure as zero: nothing has been counted yet.
+  const [hasLoaded, setHasLoaded] = useState(false);
+
+  // A retry and the after-a-turn reload can be open at once, and the older
+  // one landing last would put its error back over fresher rows.
+  const latestLoad = useRef(0);
 
   const load = useCallback(async () => {
-    const rows = await client.prototypes.checkpoints({ id: proto.id }).catch(() => []);
-    setCheckpoints(rows);
-  }, [proto.id]);
+    latestLoad.current += 1;
+    const generation = latestLoad.current;
+
+    try {
+      const rows = await client.prototypes.checkpoints({ id: proto.id });
+
+      if (generation !== latestLoad.current) {
+        return;
+      }
+
+      setCheckpoints(rows);
+      setLoadError(null);
+      onErrorChange?.(null);
+      onCountChange?.(rows.length);
+    } catch {
+      if (generation !== latestLoad.current) {
+        return;
+      }
+
+      // A failed request is not an empty timeline. Reporting it as zero
+      // checkpoints tells the user their work was never saved.
+      const message = "Couldn't load checkpoints.";
+      setLoadError(message);
+      onErrorChange?.(message);
+    } finally {
+      if (generation === latestLoad.current) {
+        setHasLoaded(true);
+      }
+    }
+  }, [proto.id, onCountChange, onErrorChange]);
 
   // Reload after each agent turn — the agent may have snapped a checkpoint.
   useEffect(() => {
@@ -823,25 +888,36 @@ function CheckpointsPanel({
   }, [load, refreshSignal]);
 
   async function restore(cid: string) {
+    // Single flight: two restores in the air have no identity in the
+    // lifecycle, so one finishing would settle or clear the other's.
+    if (restoringId !== null) {
+      return;
+    }
+
     setRestoringId(cid);
-    onRestoringChange(true);
+    onRestoreStarted();
     try {
       const updated = await client.prototypes.restore({
         id: proto.id,
         checkpointId: cid,
       });
       toast.success("Restored — code and database rolled back together.");
+      // Restoring stays true through the hand-off: clearing it here batches
+      // with the tab switch, so the preview would arrive already "ready" and
+      // the user would land on a blank iframe instead of the loader that
+      // narrates the dev server coming back. The preview clears it when the
+      // reloaded app has actually painted.
       onRestored(updated);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Restore failed");
+      onRestoreFailed();
     } finally {
       setRestoringId(null);
-      onRestoringChange(false);
     }
   }
 
-  // No projectId chip here: the Database card above already names it, and
-  // at rail width the extra chip collides with the sha + snapshot pair.
+  // No projectId chip here: settings already names the project, and the
+  // chip would collide with the sha + snapshot pair on a narrow row.
   const rows: TimelineCheckpoint[] = checkpoints.map((c) => ({
     createdAt: relativeTime(new Date(c.createdAt)),
     id: c.id,
@@ -851,21 +927,54 @@ function CheckpointsPanel({
   }));
 
   return (
-    // Grows to claim the drawer's spare height so Usage sits pinned at
-    // the bottom; the empty state stretches to hold the same space.
-    <section className="flex min-h-0 flex-1 flex-col pb-5">
-      <p className="mb-1 font-medium text-sm">Checkpoints</p>
-      <p className="mb-3 text-muted-foreground text-xs">Code and database, restored together.</p>
+    <section className="flex h-full min-h-0 flex-col">
+      <p className="mb-3 text-muted-foreground text-xs">
+        Every checkpoint holds the code and the database together, restored as one.
+      </p>
+      {/* Above the timeline rather than inside its empty slot: a refresh that
+          fails after a successful load leaves rows on screen, and those rows
+          are then older than they look. */}
+      {loadError ? (
+        <p className="mb-3 flex flex-wrap items-baseline gap-x-2 text-xs" role="alert">
+          <span className="text-destructive">{loadError}</span>
+          {rows.length > 0 ? (
+            <span className="text-muted-foreground">Showing the last list that loaded.</span>
+          ) : null}
+          <button
+            className="font-medium text-foreground underline underline-offset-4 hover:text-primary"
+            onClick={() => void load()}
+            type="button"
+          >
+            Try again
+          </button>
+        </p>
+      ) : null}
       <CheckpointTimeline
         checkpoints={rows}
-        className="min-h-0 flex-1"
+        className="min-h-0 flex-1 overflow-y-auto"
         currentId={proto.activeCheckpointId ?? undefined}
         empty={
-          <EmptyState
-            className="h-full"
-            description="Checkpoints capture your app and database together as the agent works."
-            title="No checkpoints yet"
-          />
+          // "No checkpoints yet" is a measurement, so it waits until one has
+          // been taken: not while the first request is open, and not when it
+          // came back a failure.
+          loadError ? (
+            <EmptyState
+              className="h-full"
+              description="Your checkpoints could not be listed."
+              title="Checkpoints unavailable"
+            />
+          ) : hasLoaded ? (
+            <EmptyState
+              className="h-full"
+              description="Checkpoints capture your app and database together as the agent works."
+              title="No checkpoints yet"
+            />
+          ) : (
+            <div className="space-y-2 py-2">
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-4/5" />
+            </div>
+          )
         }
         onRestore={restore}
         restoringId={restoringId}
@@ -874,76 +983,135 @@ function CheckpointsPanel({
   );
 }
 
-const METRIC_DEFS: {
-  id: string;
-  label: string;
-  format: "bytes" | "number";
-}[] = [
-  { format: "number", id: "compute_unit_seconds", label: "Compute (CU·s)" },
-  { format: "bytes", id: "root_branch_bytes_month", label: "Root storage" },
-  { format: "bytes", id: "child_branch_bytes_month", label: "Branch storage" },
-  {
-    format: "bytes",
-    id: "snapshot_storage_bytes_month",
-    label: "Snapshot storage",
-  },
-  { format: "bytes", id: "public_network_transfer_bytes", label: "Egress" },
-];
+const USAGE_WINDOW_DAYS = 14;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Rail-scale usage: quiet meter rows (label left, mono value right) instead
- * of dashboard metric cards — the rail is a readout, not a report.
+ * This app's own metering, on the same registry cards the account usage
+ * page uses — one visual language for one number, whichever surface you
+ * read it on. Scoped to this app's Neon project via the consumption proxy.
  */
 function UsagePanel({ proto }: { proto: Prototype }) {
-  const usageQuery = useQuery(orpc.prototypes.usage.queryOptions({ input: { id: proto.id } }));
-  const usage = usageQuery.data?.usage ?? null;
-  const planGated = usageQuery.data?.planGated ?? false;
-  // Nothing metered yet reads as dashes, not zeros — "no data" and
-  // "measured zero" are different claims.
-  const empty = usage !== null && Object.keys(usage.metrics).length === 0;
+  // Stable across renders: a fresh Date would change the request key and
+  // refetch forever.
+  const window = useMemo(() => {
+    const end = new Date();
+    return {
+      from: new Date(end.getTime() - USAGE_WINDOW_DAYS * DAY_MS).toISOString(),
+      to: end.toISOString(),
+    };
+  }, []);
+
+  const projectIds = useMemo(
+    () => (proto.neonProjectId ? [proto.neonProjectId] : []),
+    [proto.neonProjectId],
+  );
+
+  const { buckets, isLoading, error, refresh } = useConsumptionHistory({
+    enabled: projectIds.length > 0,
+    from: window.from,
+    granularity: "daily",
+    projectIds,
+    to: window.to,
+  });
+
+  // Buckets are UTC days, so they are labelled in UTC: a local format names
+  // the day before the one the bucket covers, west of Greenwich.
+  const label = (start: string) =>
+    new Date(start).toLocaleDateString(undefined, {
+      day: "numeric",
+      month: "short",
+      timeZone: "UTC",
+    });
+
+  const samples = (metric: ConsumptionMetricName) =>
+    buckets.map((bucket) => ({
+      label: label(bucket.start),
+      value: bucket.values[metric] ?? 0,
+    }));
+
+  /**
+   * Storage metrics are byte-hours, an accumulation rather than a level:
+   * handed straight to a card that formats bytes, a day of holding 1 GB
+   * reads as 24 GB.
+   */
+  const storageSamples = () =>
+    buckets.map((bucket) => ({
+      label: label(bucket.start),
+      value: toAverageBytes(
+        STORAGE_METRICS.reduce((sum, metric) => sum + (bucket.values[metric] ?? 0), 0),
+        hoursBetween(bucket.start, bucket.end),
+      ),
+    }));
+
+  const metered = hasMeteredData(buckets);
+  // Nothing was asked for until this app has a project, so there is nothing
+  // to report as unmetered.
+  const unprovisioned = projectIds.length === 0;
 
   return (
-    <section className="border-border border-t pt-5">
-      <p className="mb-1 font-medium text-sm">Usage</p>
-      <p className="mb-3 text-muted-foreground text-xs">
-        This app&rsquo;s Neon project, last 30 days.
+    <section className="h-full max-w-3xl overflow-y-auto">
+      <p className="mb-4 text-muted-foreground text-xs">
+        This app&rsquo;s Neon project, last {USAGE_WINDOW_DAYS} days.{" "}
+        <Link className="underline underline-offset-2 hover:text-foreground" href="/usage">
+          Account usage
+        </Link>
       </p>
-      {usageQuery.isLoading ? (
-        <div className="space-y-2">
-          {METRIC_DEFS.map((def) => (
-            <Skeleton className="h-7 w-full" key={def.id} />
-          ))}
-        </div>
-      ) : planGated ? (
-        <p className="text-muted-foreground text-xs leading-relaxed">
-          Per-project metering comes with the paid org — upgrade this app and billing-aligned usage
-          appears here.
+      {error ? (
+        <p className="mb-3 flex flex-wrap items-baseline gap-x-2 text-xs" role="alert">
+          <span className="text-destructive">{error}</span>
+          {metered ? (
+            <span className="text-muted-foreground">
+              Showing the last figures that loaded.
+            </span>
+          ) : null}
+          <button
+            className="font-medium text-foreground underline underline-offset-4 hover:text-primary"
+            onClick={refresh}
+            type="button"
+          >
+            Try again
+          </button>
         </p>
-      ) : usageQuery.error ? (
-        <p className="text-muted-foreground text-xs">Could not load usage.</p>
-      ) : (
+      ) : null}
+      {isLoading || metered ? (
         <>
-          <dl className="divide-y divide-border/60 border-border/60 border-y">
-            {METRIC_DEFS.map((def) => {
-              const value = usage?.metrics[def.id] ?? 0;
-              return (
-                <div className="flex items-baseline justify-between gap-3 py-1.5" key={def.id}>
-                  <dt className="text-muted-foreground text-xs">{def.label}</dt>
-                  <dd className="font-mono text-xs tabular-nums">
-                    {empty || usage === null
-                      ? "–"
-                      : def.format === "bytes"
-                        ? formatBytes(value)
-                        : formatCount(value)}
-                  </dd>
-                </div>
-              );
-            })}
-          </dl>
-          <p className="mt-2 text-muted-foreground/70 text-xs leading-relaxed">
-            Metering can lag after provisioning or transfer.
-          </p>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <UsageCard
+              data={samples("compute_unit_seconds")}
+              isLoading={isLoading}
+              metric="compute"
+            />
+            <UsageCard
+              data={storageSamples()}
+              isLoading={isLoading}
+              label="Storage held"
+              metric="storage"
+            />
+            <UsageCard
+              data={samples("public_network_transfer_bytes")}
+              isLoading={isLoading}
+              label="Public data out"
+              metric="written-data"
+            />
+          </div>
+          {error ? null : (
+            <p className="mt-3 text-muted-foreground/70 text-xs leading-relaxed">
+              Metering can lag after provisioning or transfer.
+            </p>
+          )}
         </>
+      ) : error ? null : (
+        // Zeros are a claim. A card reading "0 CU-hr" with an empty chart
+        // well under it says "measured zero" — which is not what happened.
+        <EmptyState
+          description={
+            unprovisioned
+              ? "This app has no database yet, so there is nothing to meter."
+              : NOT_METERED.description
+          }
+          title={unprovisioned ? "No database yet" : NOT_METERED.title}
+        />
       )}
     </section>
   );
