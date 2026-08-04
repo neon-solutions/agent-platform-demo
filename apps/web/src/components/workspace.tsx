@@ -827,16 +827,26 @@ function CheckpointsPanel({
       <p className="mb-3 text-muted-foreground text-xs">
         Every checkpoint holds the code and the database together, restored as one.
       </p>
+      {/* Above the timeline rather than inside its empty slot: a refresh that
+          fails after a successful load leaves rows on screen, and those rows
+          are then older than they look. */}
+      {loadError ? (
+        <p className="mb-3 text-destructive text-xs" role="alert">
+          {loadError} {rows.length > 0 ? "Showing the last list that loaded." : null}
+        </p>
+      ) : null}
       <CheckpointTimeline
         checkpoints={rows}
         className="min-h-0 flex-1"
         currentId={proto.activeCheckpointId ?? undefined}
         empty={
           loadError ? (
+            // "No checkpoints yet" is a measurement, and a failed request is
+            // not one.
             <EmptyState
               className="h-full"
-              description={`${loadError} Your checkpoints are safe; this is the list that failed to load.`}
-              title="Could not load checkpoints"
+              description="The list could not be loaded, so this is not a count of zero."
+              title="Checkpoints unavailable"
             />
           ) : (
             <EmptyState
