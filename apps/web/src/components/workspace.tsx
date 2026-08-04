@@ -743,14 +743,11 @@ function PreviewPanel({
   const url = liveUrl ?? proto.sandboxUrl;
 
   // Reload the preview iframe after each agent turn (Next.js recompiled).
-  const firstSignal = useRef(true);
-  useEffect(() => {
-    if (firstSignal.current) {
-      firstSignal.current = false;
-      return;
-    }
-    setNonce((n) => n + 1);
-  }, [refreshSignal]);
+  // Folded into the key rather than translated through an effect: the effect
+  // ran a commit later than the state that raised the restore loader, and
+  // the old frame finishing its load in that gap would settle a restore
+  // whose reload had not started.
+  const reloadSignal = refreshSignal + nonce;
 
   /**
    * An app that never repaints must not leave the restore loader up for
@@ -800,7 +797,7 @@ function PreviewPanel({
       className="h-full"
       onRestart={wake}
       onFrameLoad={awaitingPaint ? onPainted : undefined}
-      reloadSignal={nonce}
+      reloadSignal={reloadSignal}
       src={url}
       state={restoring || waking ? "waking" : "ready"}
       title={proto.name}
@@ -891,6 +888,12 @@ function CheckpointsPanel({
   }, [load, refreshSignal]);
 
   async function restore(cid: string) {
+    // Single flight: two restores in the air have no identity in the
+    // lifecycle, so one finishing would settle or clear the other's.
+    if (restoringId !== null) {
+      return;
+    }
+
     setRestoringId(cid);
     onRestoreStarted();
     try {

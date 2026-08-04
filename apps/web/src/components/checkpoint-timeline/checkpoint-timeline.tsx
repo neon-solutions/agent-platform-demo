@@ -196,7 +196,10 @@ const CheckpointRow = ({
     {onRestore ? (
       <Button
         className={actionClasses(isRestoring, locked)}
-        disabled={locked}
+        // The row being restored is disabled too: pressing it again starts a
+        // second restore of the same checkpoint, and the first has no way to
+        // tell the difference.
+        disabled={locked || isRestoring}
         onClick={() => onRestore(checkpoint.id)}
         size="sm"
         variant="ghost"
