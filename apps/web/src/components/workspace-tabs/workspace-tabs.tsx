@@ -43,8 +43,8 @@ export type WorkspaceTabsProps = Omit<ComponentProps<typeof Tabs>, "children"> &
  *  rest     mono lowercase labels, muted; the active tab
  *           holds foreground with a primary underline
  *  switch   the underline glides to the new tab (240ms
- *           strong ease-out, transform-only) and the new
- *           pane fades up 4px; the old pane just leaves
+ *           strong ease-out) and the new pane fades up
+ *           4px; the old pane just leaves
  *  actions  each tab owns a right-aligned action slot that
  *           crossfades with the tab switch — the bar's
  *           height never changes

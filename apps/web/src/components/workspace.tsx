@@ -6,7 +6,6 @@ import type { Checkpoint, Prototype } from "@vibe/db/schema";
 import { Button } from "@vibe/ui/components/button";
 import { DefaultChatTransport } from "ai";
 import { GitCommitVertical, Monitor, Settings2, X } from "lucide-react";
-import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AgentChat } from "@/components/agent-chat/agent-chat";
@@ -26,7 +25,12 @@ import { ProvisioningStatus } from "@/components/provisioning-status/provisionin
 import { UsageCard } from "@/components/usage-card/usage-card";
 import { WorkspaceTabs } from "@/components/workspace-tabs/workspace-tabs";
 import { useConsumptionHistory } from "@/hooks/use-consumption-history";
-import type { ConsumptionMetricName } from "@/lib/consumption";
+import {
+  type ConsumptionMetricName,
+  hoursBetween,
+  STORAGE_METRICS,
+  toAverageBytes,
+} from "@/lib/consumption";
 import { hasMeteredData, NOT_METERED } from "@/lib/usage";
 import { type AppStatus, StatusBadge } from "@/components/status-badge/status-badge";
 import {
@@ -256,6 +260,10 @@ export function Workspace({
                 count: checkpointCount,
                 icon: <GitCommitVertical className="size-3.5" />,
                 id: "checkpoints",
+                // Mounted from the start so the count is on the label
+                // before the tab is ever opened — the count is the reason
+                // to open it.
+                keepMounted: true,
                 label: "checkpoints",
               },
               {
@@ -671,14 +679,11 @@ export function ProvisioningFeed({ proto }: { proto: Prototype }) {
 }
 
 function PreviewPanel({
-  actions,
   proto,
   refreshSignal,
   working,
   restoring,
 }: {
-  /** Extra controls merged into the frame's header, before the built-ins. */
-  actions?: ReactNode;
   proto: Prototype;
   refreshSignal: number;
   working: boolean;
@@ -728,7 +733,6 @@ function PreviewPanel({
 
   return proto.status === "ready" && url ? (
     <PreviewFrame
-      actions={actions}
       className="h-full"
       onRestart={wake}
       reloadSignal={nonce}
@@ -770,11 +774,19 @@ function CheckpointsPanel({
 }) {
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
   const [restoringId, setRestoringId] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const rows = await client.prototypes.checkpoints({ id: proto.id }).catch(() => []);
-    setCheckpoints(rows);
-    onCountChange?.(rows.length);
+    try {
+      const rows = await client.prototypes.checkpoints({ id: proto.id });
+      setCheckpoints(rows);
+      setLoadError(null);
+      onCountChange?.(rows.length);
+    } catch (e) {
+      // A failed request is not an empty timeline. Reporting it as zero
+      // checkpoints tells the user their work was never saved.
+      setLoadError(e instanceof Error ? e.message : "Could not load checkpoints");
+    }
   }, [proto.id, onCountChange]);
 
   // Reload after each agent turn — the agent may have snapped a checkpoint.
@@ -820,11 +832,19 @@ function CheckpointsPanel({
         className="min-h-0 flex-1"
         currentId={proto.activeCheckpointId ?? undefined}
         empty={
-          <EmptyState
-            className="h-full"
-            description="Checkpoints capture your app and database together as the agent works."
-            title="No checkpoints yet"
-          />
+          loadError ? (
+            <EmptyState
+              className="h-full"
+              description={`${loadError} Your checkpoints are safe; this is the list that failed to load.`}
+              title="Could not load checkpoints"
+            />
+          ) : (
+            <EmptyState
+              className="h-full"
+              description="Checkpoints capture your app and database together as the agent works."
+              title="No checkpoints yet"
+            />
+          )
         }
         onRestore={restore}
         restoringId={restoringId}
@@ -865,13 +885,33 @@ function UsagePanel({ proto }: { proto: Prototype }) {
     to: window.to,
   });
 
+  // Buckets are UTC days, so they are labelled in UTC: a local format names
+  // the day before the one the bucket covers, west of Greenwich.
+  const label = (start: string) =>
+    new Date(start).toLocaleDateString(undefined, {
+      day: "numeric",
+      month: "short",
+      timeZone: "UTC",
+    });
+
   const samples = (metric: ConsumptionMetricName) =>
     buckets.map((bucket) => ({
-      label: new Date(bucket.start).toLocaleDateString(undefined, {
-        day: "numeric",
-        month: "short",
-      }),
+      label: label(bucket.start),
       value: bucket.values[metric] ?? 0,
+    }));
+
+  /**
+   * Storage metrics are byte-hours, an accumulation rather than a level:
+   * handed straight to a card that formats bytes, a day of holding 1 GB
+   * reads as 24 GB.
+   */
+  const storageSamples = () =>
+    buckets.map((bucket) => ({
+      label: label(bucket.start),
+      value: toAverageBytes(
+        STORAGE_METRICS.reduce((sum, metric) => sum + (bucket.values[metric] ?? 0), 0),
+        hoursBetween(bucket.start, bucket.end),
+      ),
     }));
 
   const metered = hasMeteredData(buckets);
@@ -884,7 +924,7 @@ function UsagePanel({ proto }: { proto: Prototype }) {
           Account usage
         </a>
       </p>
-      {isLoading || metered ? (
+      {isLoading || metered || error !== null ? (
         <>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <UsageCard
@@ -894,7 +934,7 @@ function UsagePanel({ proto }: { proto: Prototype }) {
               metric="compute"
             />
             <UsageCard
-              data={samples("root_branch_bytes_month")}
+              data={storageSamples()}
               error={error}
               isLoading={isLoading}
               label="Storage"
