@@ -14,6 +14,7 @@ import {
   CheckpointTimeline,
 } from "@/components/checkpoint-timeline/checkpoint-timeline";
 import { motion, useReducedMotion } from "motion/react";
+import Link from "next/link";
 import { AppSettingsSections } from "@/components/app-settings";
 import { EmptyState } from "@/components/empty-state/empty-state";
 import { ErrorDialog } from "@/components/error-dialog";
@@ -178,6 +179,10 @@ export function Workspace({
   // Lifted so the tab label can carry the count without the panel
   // rendering just to be counted.
   const [checkpointCount, setCheckpointCount] = useState<number | undefined>(undefined);
+  // A checkpoint list that failed to load has no count to put on its label,
+  // and the panel saying so is hidden behind the tab nobody opened. It has
+  // to be reported on the surface the user is looking at.
+  const [checkpointError, setCheckpointError] = useState<string | null>(null);
 
   return (
     <div className="flex h-svh flex-col">
@@ -198,35 +203,45 @@ export function Workspace({
             tab of its own with its count on the label. */}
         <div className="relative flex min-h-0 min-w-0 flex-1 flex-col px-4 pb-4">
           <WorkspaceTabs
+            // Settings is scoped to the app, not to a pane: renaming or
+            // tearing down is available whichever tab is open.
+            actions={
+              <TooltipProvider delay={300}>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        aria-label="App settings"
+                        aria-pressed={panel === "settings"}
+                        onClick={() => setPanel((p) => (p === "settings" ? null : "settings"))}
+                        size="icon-sm"
+                        variant="ghost"
+                      >
+                        <Settings2 />
+                      </Button>
+                    }
+                  />
+                  <TooltipContent className="flex-col items-start gap-0.5" side="bottom">
+                    <span className="font-medium">App settings</span>
+                    <span className="text-muted-foreground">
+                      Rename, connection string, and teardown.
+                    </span>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            }
             className="min-h-0 flex-1"
+            notice={
+              checkpointError ? (
+                <span role="alert">
+                  <span className="font-mono text-destructive">checkpoints</span>{" "}
+                  {checkpointError}
+                </span>
+              ) : null
+            }
             onValueChange={setTab}
             tabs={[
               {
-                actions: (
-                  <TooltipProvider delay={300}>
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <Button
-                            aria-label="App settings"
-                            aria-pressed={panel === "settings"}
-                            onClick={() => setPanel((p) => (p === "settings" ? null : "settings"))}
-                            size="icon-sm"
-                            variant="ghost"
-                          >
-                            <Settings2 />
-                          </Button>
-                        }
-                      />
-                      <TooltipContent className="flex-col items-start gap-0.5" side="bottom">
-                        <span className="font-medium">App settings</span>
-                        <span className="text-muted-foreground">
-                          Rename, connection string, and teardown.
-                        </span>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                ),
                 content: (
                   <div className="relative h-full">
                     <PreviewPanel
@@ -248,9 +263,14 @@ export function Workspace({
                 content: (
                   <CheckpointsPanel
                     onCountChange={setCheckpointCount}
+                    onErrorChange={setCheckpointError}
                     onRestored={(p) => {
                       setProto(p);
                       setTurn((t) => t + 1);
+                      // The restore's payoff is the app reverting, and that
+                      // renders in the preview. Staying here would put the
+                      // demo's whole point on a hidden panel.
+                      setTab("preview");
                     }}
                     onRestoringChange={setRestoring}
                     proto={proto}
@@ -258,6 +278,7 @@ export function Workspace({
                   />
                 ),
                 count: checkpointCount,
+                countLabel: "checkpoints",
                 icon: <GitCommitVertical className="size-3.5" />,
                 id: "checkpoints",
                 // Mounted from the start so the count is on the label
@@ -764,6 +785,7 @@ function CheckpointsPanel({
   refreshSignal,
   onRestoringChange,
   onCountChange,
+  onErrorChange,
 }: {
   proto: Prototype;
   onRestored: (p: Prototype) => void;
@@ -771,6 +793,8 @@ function CheckpointsPanel({
   onRestoringChange: (restoring: boolean) => void;
   /** Reports the count so the tab label can carry it. */
   onCountChange?: (count: number) => void;
+  /** Reports a failed load, which has no count to report. */
+  onErrorChange?: (error: string | null) => void;
 }) {
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
   const [restoringId, setRestoringId] = useState<string | null>(null);
@@ -781,13 +805,16 @@ function CheckpointsPanel({
       const rows = await client.prototypes.checkpoints({ id: proto.id });
       setCheckpoints(rows);
       setLoadError(null);
+      onErrorChange?.(null);
       onCountChange?.(rows.length);
-    } catch (e) {
+    } catch {
       // A failed request is not an empty timeline. Reporting it as zero
       // checkpoints tells the user their work was never saved.
-      setLoadError(e instanceof Error ? e.message : "Could not load checkpoints");
+      const message = "Couldn't load checkpoints.";
+      setLoadError(message);
+      onErrorChange?.(message);
     }
-  }, [proto.id, onCountChange]);
+  }, [proto.id, onCountChange, onErrorChange]);
 
   // Reload after each agent turn — the agent may have snapped a checkpoint.
   useEffect(() => {
@@ -831,13 +858,23 @@ function CheckpointsPanel({
           fails after a successful load leaves rows on screen, and those rows
           are then older than they look. */}
       {loadError ? (
-        <p className="mb-3 text-destructive text-xs" role="alert">
-          {loadError} {rows.length > 0 ? "Showing the last list that loaded." : null}
+        <p className="mb-3 flex flex-wrap items-baseline gap-x-2 text-xs" role="alert">
+          <span className="text-destructive">{loadError}</span>
+          {rows.length > 0 ? (
+            <span className="text-muted-foreground">Showing the last list that loaded.</span>
+          ) : null}
+          <button
+            className="font-medium text-foreground underline underline-offset-4 hover:text-primary"
+            onClick={() => void load()}
+            type="button"
+          >
+            Try again
+          </button>
         </p>
       ) : null}
       <CheckpointTimeline
         checkpoints={rows}
-        className="min-h-0 flex-1"
+        className="min-h-0 flex-1 overflow-y-auto"
         currentId={proto.activeCheckpointId ?? undefined}
         empty={
           loadError ? (
@@ -845,7 +882,7 @@ function CheckpointsPanel({
             // not one.
             <EmptyState
               className="h-full"
-              description="The list could not be loaded, so this is not a count of zero."
+              description="Your checkpoints could not be listed. Nothing has been lost."
               title="Checkpoints unavailable"
             />
           ) : (
@@ -887,7 +924,7 @@ function UsagePanel({ proto }: { proto: Prototype }) {
     [proto.neonProjectId],
   );
 
-  const { buckets, isLoading, error } = useConsumptionHistory({
+  const { buckets, isLoading, error, refresh } = useConsumptionHistory({
     enabled: projectIds.length > 0,
     from: window.from,
     granularity: "daily",
@@ -925,47 +962,73 @@ function UsagePanel({ proto }: { proto: Prototype }) {
     }));
 
   const metered = hasMeteredData(buckets);
+  // Nothing was asked for until this app has a project, so there is nothing
+  // to report as unmetered.
+  const unprovisioned = projectIds.length === 0;
 
   return (
-    <section className="max-w-3xl">
+    <section className="max-w-3xl overflow-y-auto">
       <p className="mb-4 text-muted-foreground text-xs">
         This app&rsquo;s Neon project, last {USAGE_WINDOW_DAYS} days.{" "}
-        <a className="underline underline-offset-2 hover:text-foreground" href="/usage">
+        <Link className="underline underline-offset-2 hover:text-foreground" href="/usage">
           Account usage
-        </a>
+        </Link>
       </p>
-      {isLoading || metered || error !== null ? (
+      {error ? (
+        <p className="mb-3 flex flex-wrap items-baseline gap-x-2 text-xs" role="alert">
+          <span className="text-destructive">{error}</span>
+          {metered ? (
+            <span className="text-muted-foreground">
+              Showing the last figures that loaded.
+            </span>
+          ) : null}
+          <button
+            className="font-medium text-foreground underline underline-offset-4 hover:text-primary"
+            onClick={refresh}
+            type="button"
+          >
+            Try again
+          </button>
+        </p>
+      ) : null}
+      {isLoading || metered ? (
         <>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <UsageCard
               data={samples("compute_unit_seconds")}
-              error={error}
               isLoading={isLoading}
               metric="compute"
             />
             <UsageCard
               data={storageSamples()}
-              error={error}
               isLoading={isLoading}
-              label="Storage"
+              label="Storage held"
               metric="storage"
             />
             <UsageCard
               data={samples("public_network_transfer_bytes")}
-              error={error}
               isLoading={isLoading}
-              label="Data out"
+              label="Public data out"
               metric="written-data"
             />
           </div>
-          <p className="mt-3 text-muted-foreground/70 text-xs leading-relaxed">
-            Metering can lag after provisioning or transfer.
-          </p>
+          {error ? null : (
+            <p className="mt-3 text-muted-foreground/70 text-xs leading-relaxed">
+              Metering can lag after provisioning or transfer.
+            </p>
+          )}
         </>
-      ) : (
-        // Zeros are a claim. A card reading "0 hrs" with an empty chart
+      ) : error ? null : (
+        // Zeros are a claim. A card reading "0 CU-hr" with an empty chart
         // well under it says "measured zero" — which is not what happened.
-        <EmptyState description={NOT_METERED.description} title={NOT_METERED.title} />
+        <EmptyState
+          description={
+            unprovisioned
+              ? "This app has no database yet, so there is nothing to meter."
+              : NOT_METERED.description
+          }
+          title={unprovisioned ? "No database yet" : NOT_METERED.title}
+        />
       )}
     </section>
   );

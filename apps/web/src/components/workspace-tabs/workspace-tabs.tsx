@@ -1,5 +1,6 @@
 "use client";
 
+import { useReducedMotion } from "motion/react";
 import type { ComponentProps, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 
@@ -15,6 +16,8 @@ export interface WorkspaceTab {
   icon?: ReactNode;
   /** Optional count rendered after the label, e.g. checkpoints. */
   count?: number;
+  /** What the count counts, for the trigger's accessible name. */
+  countLabel?: string;
   /** Right-aligned actions shown only while this tab is active. */
   actions?: ReactNode;
   /** The pane content. */
@@ -35,6 +38,18 @@ export type WorkspaceTabsProps = Omit<ComponentProps<typeof Tabs>, "children"> &
   /** Uncontrolled initial tab id; defaults to the first tab. */
   defaultValue?: string;
   onValueChange?: (id: string) => void;
+  /**
+   * Right-aligned actions that belong to the whole workspace rather than to
+   * one pane. A control scoped to the thing the tabs are about disappearing
+   * on two of three tabs reads as a bug.
+   */
+  actions?: ReactNode;
+  /**
+   * A line under the bar for something the user must see whichever tab is
+   * open — a pane that failed to load says so here, because saying it
+   * inside that pane says it to nobody.
+   */
+  notice?: ReactNode;
 };
 
 /* ─────────────────────────────────────────────────────────
@@ -45,9 +60,9 @@ export type WorkspaceTabsProps = Omit<ComponentProps<typeof Tabs>, "children"> &
  *  switch   the underline glides to the new tab (240ms
  *           strong ease-out) and the new pane fades up
  *           4px; the old pane just leaves
- *  actions  each tab owns a right-aligned action slot that
- *           crossfades with the tab switch — the bar's
- *           height never changes
+ *  actions  workspace-wide controls sit at the right of the
+ *           bar; a tab may add its own, which fade in on
+ *           the switch — the bar's height never changes
  *  hover    label warms to foreground, nothing moves
  * ───────────────────────────────────────────────────────── */
 const EASE_OUT = "cubic-bezier(0.23, 1, 0.32, 1)";
@@ -56,6 +71,9 @@ const EASE_OUT = "cubic-bezier(0.23, 1, 0.32, 1)";
 const GlideUnderline = ({ activeId }: { activeId: string }) => {
   const ref = useRef<HTMLSpanElement>(null);
   const [rect, setRect] = useState<{ left: number; width: number } | null>(null);
+  // The transition is an inline style, and inline beats any class — so the
+  // motion-reduce utility cannot turn this one off. It has to be read.
+  const reduceMotion = useReducedMotion();
 
   useEffect(() => {
     const list = ref.current?.closest('[data-slot="tabs-list"]');
@@ -82,13 +100,15 @@ const GlideUnderline = ({ activeId }: { activeId: string }) => {
     <span
       aria-hidden="true"
       className={cn(
-        "pointer-events-none absolute bottom-0 h-0.5 bg-primary motion-reduce:transition-none",
+        "pointer-events-none absolute bottom-0 h-0.5 bg-primary",
         rect ? "opacity-100" : "opacity-0",
       )}
       ref={ref}
       style={{
         left: rect?.left ?? 0,
-        transition: `left 240ms ${EASE_OUT}, width 240ms ${EASE_OUT}`,
+        transition: reduceMotion
+          ? "none"
+          : `left 240ms ${EASE_OUT}, width 240ms ${EASE_OUT}`,
         width: rect?.width ?? 0,
       }}
     />
@@ -96,8 +116,10 @@ const GlideUnderline = ({ activeId }: { activeId: string }) => {
 };
 
 export const WorkspaceTabs = ({
+  actions,
   className,
   defaultValue,
+  notice,
   onValueChange,
   tabs,
   value,
@@ -123,9 +145,17 @@ export const WorkspaceTabs = ({
       {...props}
     >
       <div className="flex items-center justify-between gap-3 border-border/40 border-b">
-        <TabsList className="relative h-9 gap-1 rounded-none bg-transparent p-0" variant="line">
+        <TabsList
+          className="relative h-9 shrink gap-1 overflow-x-auto rounded-none bg-transparent p-0"
+          variant="line"
+        >
           {tabs.map((tab) => (
             <TabsTrigger
+              aria-label={
+                typeof tab.count === "number" && tab.countLabel
+                  ? `${tab.label}, ${tab.count} ${tab.countLabel}`
+                  : undefined
+              }
               className="h-full flex-none rounded-none px-3 font-mono text-muted-foreground text-xs after:hidden hover:text-foreground data-active:bg-transparent data-active:text-foreground dark:data-active:border-transparent dark:data-active:bg-transparent"
               disabled={tab.disabled}
               key={tab.id}
@@ -134,8 +164,11 @@ export const WorkspaceTabs = ({
               {tab.icon}
               {tab.label}
               {typeof tab.count === "number" ? (
+                // Carried by the label of the tab it argues for, so it holds
+                // foreground weight even while that tab is muted.
                 <span
-                  className="inline-flex h-3.5 min-w-3.5 items-center justify-center rounded-sm border border-border/60 px-[3px] pt-px text-[10px] text-muted-foreground leading-none tabular-nums transition-colors"
+                  aria-hidden="true"
+                  className="inline-flex h-3.5 min-w-3.5 items-center justify-center rounded-sm bg-primary/10 px-[3px] pt-px font-medium text-[10px] text-primary leading-none tabular-nums"
                   data-slot="workspace-tabs-count"
                 >
                   {tab.count}
@@ -145,19 +178,34 @@ export const WorkspaceTabs = ({
           ))}
           <GlideUnderline activeId={active} />
         </TabsList>
-        {activeTab?.actions ? (
+        {actions || activeTab?.actions ? (
           <div
-            className="fade-in-0 flex animate-in items-center gap-1.5 pr-1 duration-200 motion-reduce:animate-none"
+            className="flex shrink-0 items-center gap-1.5 pr-1"
             data-slot="workspace-tabs-actions"
-            key={active}
           >
-            {activeTab.actions}
+            {activeTab?.actions ? (
+              <div
+                className="fade-in-0 flex animate-in items-center gap-1.5 duration-200 motion-reduce:animate-none"
+                key={active}
+              >
+                {activeTab.actions}
+              </div>
+            ) : null}
+            {actions}
           </div>
         ) : null}
       </div>
+      {notice ? (
+        <p
+          className="border-destructive/30 border-b bg-destructive/5 px-3 py-2 text-xs"
+          data-slot="workspace-tabs-notice"
+        >
+          {notice}
+        </p>
+      ) : null}
       {tabs.map((tab) => (
         <TabsContent
-          className="fade-in-0 slide-in-from-bottom-1 min-h-0 flex-1 animate-in pt-4 duration-300 data-[hidden]:hidden motion-reduce:animate-none"
+          className="fade-in-0 slide-in-from-bottom-1 min-h-0 flex-1 animate-in pt-4 duration-300 focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2 data-[hidden]:hidden motion-reduce:animate-none"
           key={tab.id}
           keepMounted={tab.keepMounted}
           value={tab.id}
