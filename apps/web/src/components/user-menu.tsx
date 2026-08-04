@@ -10,7 +10,7 @@ import {
   DropdownMenuTrigger,
 } from "@vibe/ui/components/dropdown-menu";
 import { Skeleton } from "@vibe/ui/components/skeleton";
-import { LayoutGrid, LogOut, Plus, UserRound } from "lucide-react";
+import { ChartLine, LayoutGrid, LogOut, Plus, UserRound } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
 
@@ -91,6 +91,9 @@ export default function UserMenu() {
         <DropdownMenuGroup>
           <DropdownMenuItem onClick={() => router.push("/app")}>
             <LayoutGrid /> Your apps
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => router.push("/usage")}>
+            <ChartLine /> Usage
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => router.push("/account")}>
             <UserRound /> Account
