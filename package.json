@@ -18,8 +18,8 @@
       "sonner": "^2.0.7",
       "tailwindcss": "^4.3.2",
       "ai": "^6.0.230",
-    "@ai-sdk/react": "^3.0.232",
-    "@orpc/server": "^1.14.6",
+      "@ai-sdk/react": "^3.0.232",
+      "@orpc/server": "^1.14.6",
       "@orpc/client": "^1.14.6",
       "@orpc/openapi": "^1.14.6",
       "@orpc/zod": "^1.14.6",
@@ -46,6 +46,7 @@
     "deploy:prod": "vercel deploy --prod",
     "deploy:check": "vercel deploy --dry",
     "check": "oxlint && oxfmt --write",
+    "test": "vitest run",
     "skills:sync": "npx skills add neondatabase/agent-skills -s neon -s neon-postgres -s neon-ai-gateway -s neon-functions -s neon-object-storage -y",
     "agent:dev": "bun --env-file=.env run --filter @vibe/agent dev",
     "agent:deploy": "bun --env-file=.env run --filter @vibe/agent deploy"
@@ -62,7 +63,8 @@
     "oxlint": "^1.72.0",
     "tsx": "^4.22.5",
     "typescript": "catalog:",
-    "vercel": "^54.18.6"
+    "vercel": "^54.18.6",
+    "vitest": "^4.1.10"
   },
   "packageManager": "bun@1.3.6",
   "trustedDependencies": [
