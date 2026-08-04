@@ -30,10 +30,15 @@ const csv = (value: string) =>
     .map((entry) => entry.trim())
     .filter(Boolean);
 
+/**
+ * Neon's contract is RFC 3339, which `Date.parse` is looser than: it accepts
+ * a bare `2026-08-01` and a handful of implementation-defined formats that
+ * the API does not.
+ */
+const dateTime = z.iso.datetime({ offset: true });
+
 const schema = z.object({
-  from: z.string().refine((value) => !Number.isNaN(Date.parse(value)), {
-    message: "from must be an RFC 3339 date-time",
-  }),
+  from: dateTime,
   granularity: z.enum(["hourly", "daily", "monthly"]).default("daily"),
   metrics: z
     .string()
@@ -41,21 +46,21 @@ const schema = z.object({
     .pipe(z.array(z.enum(CONSUMPTION_METRICS)).nonempty())
     .optional(),
   project_ids: z.string().transform(csv).optional(),
-  to: z.string().refine((value) => !Number.isNaN(Date.parse(value)), {
-    message: "to must be an RFC 3339 date-time",
-  }),
+  to: dateTime,
 });
 
 /**
  * Validates a consumption request before it reaches Neon.
  *
- * A window past what its granularity reaches comes back as Neon's 406, which
- * a proxy can only report as an upstream failure — naming neither the
- * problem nor the fix. Refusing it here says which limit was crossed and by
- * how much.
+ * A range Neon cannot serve comes back as its 406, which a proxy can only
+ * report as an upstream failure — naming neither the problem nor the fix.
+ * Refusing it here says which limit was crossed and by how much. The limit
+ * is a reach into the past, not a width: hourly serves the last 168 hours,
+ * so an hour-long window from last year is as invalid as a year-long one.
  */
 export const parseConsumptionQuery = (
   params: URLSearchParams,
+  now: Date = new Date(),
 ): ConsumptionQueryResult => {
   const parsed = schema.safeParse(Object.fromEntries(params));
 
@@ -70,9 +75,12 @@ export const parseConsumptionQuery = (
     return { error: "from must be before to", ok: false };
   }
 
-  if (windowHours > MAX_WINDOW_HOURS[granularity]) {
+  const reach = MAX_WINDOW_HOURS[granularity];
+  const ageHours = (now.getTime() - Date.parse(from)) / MS_PER_HOUR;
+
+  if (ageHours > reach) {
     return {
-      error: `${granularity} consumption reaches back ${MAX_WINDOW_HOURS[granularity]} hours; asked for ${Math.ceil(windowHours)}`,
+      error: `${granularity} consumption reaches back ${reach} hours; from is ${Math.ceil(ageHours)} hours ago`,
       ok: false,
     };
   }

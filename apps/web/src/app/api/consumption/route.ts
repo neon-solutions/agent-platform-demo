@@ -10,12 +10,13 @@ import { getSession, serverClient } from "@/lib/server";
  * The org API keys are server-only, so the browser can never call
  * console.neon.tech itself. This route is the seam: it authenticates the
  * caller, narrows the request to the projects that caller actually owns,
- * and returns Neon's v2 response untouched — nested periods, raw units.
- * Every conversion happens at the display edge via lib/consumption.
+ * and hands back the project entries as Neon wrote them — nested periods,
+ * raw units. Every conversion happens at the display edge via
+ * lib/consumption.
  *
- * Apps live in one of two tenant orgs (free and paid), each behind its own
- * key, so a fleet spanning both is two fetches merged back into one
- * `projects` array.
+ * The envelope is ours: apps live in one of two tenant orgs (free and paid),
+ * each behind its own key, so a fleet spanning both is two paginated fetches
+ * concatenated into one `projects` array.
  */
 export async function GET(req: NextRequest) {
   const session = await getSession();

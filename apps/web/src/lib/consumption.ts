@@ -252,6 +252,13 @@ export const flattenConsumption = (
 ): ConsumptionBucket[] =>
   periods
     .flatMap((period) => period.consumption ?? [])
+    // A bucket with no bounds cannot be placed on an axis or divided by its
+    // duration. The API omits bounds only on an empty bucket, which carries
+    // nothing to lose by dropping.
+    .filter(
+      (timeframe) =>
+        timeframe.timeframe_start !== undefined && timeframe.timeframe_end !== undefined
+    )
     .map((timeframe) => ({
       end: timeframe.timeframe_end ?? "",
       start: timeframe.timeframe_start ?? "",

@@ -86,13 +86,25 @@ export interface UseConsumptionHistoryResult {
 const periodSchema = z.object({
   consumption: z
     .array(
-      z.object({
-        metrics: z
-          .array(z.object({ metric_name: z.string(), value: z.number() }))
-          .optional(),
-        timeframe_end: z.string().optional(),
-        timeframe_start: z.string().optional(),
-      }),
+      z
+        .object({
+          metrics: z
+            .array(z.object({ metric_name: z.string(), value: z.number() }))
+            .optional(),
+          timeframe_end: z.string().optional(),
+          timeframe_start: z.string().optional(),
+        })
+        // Bounds are omitted on an empty bucket and only on an empty one.
+        // Measurements with nothing to place them in time cannot be charted,
+        // summed per day, or divided by a duration; taking them anyway
+        // produces an "Invalid Date" point and a zero-length window.
+        .refine(
+          (timeframe) =>
+            (timeframe.metrics?.length ?? 0) === 0 ||
+            (timeframe.timeframe_start !== undefined &&
+              timeframe.timeframe_end !== undefined),
+          { message: "a timeframe carrying metrics must carry its bounds" },
+        ),
     )
     .optional(),
   period_id: z.string().optional(),
@@ -100,14 +112,20 @@ const periodSchema = z.object({
   period_start: z.string().optional(),
 });
 
-const responseSchema = z.object({
-  branches: z
-    .array(z.object({ branch_id: z.string(), periods: z.array(periodSchema) }))
-    .optional(),
-  projects: z
-    .array(z.object({ project_id: z.string(), periods: z.array(periodSchema) }))
-    .optional(),
-});
+const responseSchema = z
+  .object({
+    branches: z
+      .array(z.object({ branch_id: z.string(), periods: z.array(periodSchema) }))
+      .optional(),
+    projects: z
+      .array(z.object({ project_id: z.string(), periods: z.array(periodSchema) }))
+      .optional(),
+  })
+  // Neither key means this is not a consumption response. Reading it as an
+  // account with no projects would report an empty page as a measurement.
+  .refine((payload) => payload.projects !== undefined || payload.branches !== undefined, {
+    message: "expected a projects or branches array",
+  });
 
 type ConsumptionResponse = z.infer<typeof responseSchema>;
 

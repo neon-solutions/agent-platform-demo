@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import { parseConsumptionQuery } from "./consumption-query";
 
-const query = (params: Record<string, string>) =>
-  parseConsumptionQuery(new URLSearchParams(params));
+/** Fixed so a window's age is a fact about the test, not about the clock. */
+const NOW = new Date("2026-08-04T12:00:00Z");
 
-const DAY = { from: "2026-08-01T00:00:00Z", to: "2026-08-02T00:00:00Z" };
+const query = (params: Record<string, string>) =>
+  parseConsumptionQuery(new URLSearchParams(params), NOW);
+
+const DAY = { from: "2026-08-03T00:00:00Z", to: "2026-08-04T00:00:00Z" };
 
 describe("parseConsumptionQuery", () => {
   it("defaults to daily granularity, every metric, and the whole fleet", () => {
@@ -42,6 +45,14 @@ describe("parseConsumptionQuery", () => {
     expect(query({ ...DAY, metrics: "cpu_cycles" }).ok).toBe(false);
   });
 
+  it("rejects a date-only value, which Neon's RFC 3339 contract does not accept", () => {
+    expect(query({ from: "2026-08-03", to: DAY.to }).ok).toBe(false);
+  });
+
+  it("accepts an offset instead of Z", () => {
+    expect(query({ from: "2026-08-03T00:00:00-07:00", to: DAY.to }).ok).toBe(true);
+  });
+
   it("rejects unparseable dates", () => {
     expect(query({ from: "yesterday", to: DAY.to }).ok).toBe(false);
     expect(query({ from: DAY.from, to: "" }).ok).toBe(false);
@@ -61,7 +72,7 @@ describe("parseConsumptionQuery", () => {
     expect(query({ ...DAY, granularity: "weekly" }).ok).toBe(false);
   });
 
-  it("rejects an hourly window past the 168 hours hourly reaches back", () => {
+  it("rejects an hourly window that starts before the 168 hours hourly reaches back", () => {
     const result = query({
       from: "2026-07-01T00:00:00Z",
       granularity: "hourly",
@@ -72,16 +83,28 @@ describe("parseConsumptionQuery", () => {
     expect(!result.ok && result.error).toContain("168 hours");
   });
 
-  it("accepts the same window at daily, which reaches 60 days", () => {
+  it("rejects a short hourly window that is simply too old, not too wide", () => {
+    const result = query({
+      from: "2026-07-20T00:00:00Z",
+      granularity: "hourly",
+      to: "2026-07-20T01:00:00Z",
+    });
+
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.error).toContain("hours ago");
+  });
+
+  it("accepts the same rejected range at daily, which reaches 60 days", () => {
     expect(
       query({ from: "2026-07-01T00:00:00Z", granularity: "daily", to: "2026-08-01T00:00:00Z" })
         .ok,
     ).toBe(true);
   });
 
-  it("accepts an hourly window at the limit", () => {
+  it("accepts an hourly window that starts just inside the reach", () => {
+    // 167 hours before NOW, which is what the usage page asks for.
     expect(
-      query({ from: "2026-07-26T00:00:00Z", granularity: "hourly", to: "2026-08-02T00:00:00Z" })
+      query({ from: "2026-07-28T13:00:00Z", granularity: "hourly", to: "2026-08-04T12:00:00Z" })
         .ok,
     ).toBe(true);
   });

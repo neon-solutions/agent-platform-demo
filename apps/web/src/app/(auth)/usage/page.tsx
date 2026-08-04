@@ -49,6 +49,15 @@ const HOURS_PER_DAY = 24;
  */
 const RATE_PLAN = "agent" as const;
 
+/**
+ * The allowances are monthly and this window is a rolling fortnight, so the
+ * card has to say what it is: a rate card applied to a window. An invoice
+ * counts a billing period, and one that started before this window did has
+ * already spent part of the allowance shown here.
+ */
+const COST_NOTE =
+  "estimate · agent rates over this window, not a billing period — allowances reset monthly, and the invoice is the source of truth";
+
 /** Metrics worth plotting over time; storage gets its own breakdown. */
 const CHART_METRICS: ConsumptionMetricName[] = [
   "compute_unit_seconds",
@@ -295,6 +304,7 @@ export default function UsagePage() {
                 error={error}
                 isLoading={loading}
                 lines={cost.items}
+                note={COST_NOTE}
                 period={period}
                 plan="agent"
               />

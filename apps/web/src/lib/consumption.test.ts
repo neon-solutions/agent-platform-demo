@@ -53,6 +53,24 @@ describe("flattenConsumption", () => {
     ]);
   });
 
+  it("drops a bucket with no bounds, which cannot be placed on an axis", () => {
+    const buckets = flattenConsumption([
+      {
+        consumption: [
+          { metrics: [] },
+          {
+            metrics: [{ metric_name: "compute_unit_seconds", value: 5 }],
+            timeframe_end: "2026-08-02T00:00:00Z",
+            timeframe_start: "2026-08-01T00:00:00Z",
+          },
+        ],
+      },
+    ]);
+
+    expect(buckets).toHaveLength(1);
+    expect(buckets[0].start).toBe("2026-08-01T00:00:00Z");
+  });
+
   it("drops metrics it has no rate or label for rather than carrying them as unknowns", () => {
     const [only] = flattenConsumption([
       period([
