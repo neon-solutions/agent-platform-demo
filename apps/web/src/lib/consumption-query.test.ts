@@ -101,6 +101,17 @@ describe("parseConsumptionQuery", () => {
     ).toBe(true);
   });
 
+  it("rejects a range running into the future, which nothing has metered", () => {
+    const result = query({ from: "2026-08-04T11:00:00Z", to: "2027-01-01T00:00:00Z" });
+
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.error).toContain("in the future");
+  });
+
+  it("tolerates a browser clock running slightly fast", () => {
+    expect(query({ from: DAY.from, to: "2026-08-04T12:30:00Z" }).ok).toBe(true);
+  });
+
   it("accepts an hourly window that starts just inside the reach", () => {
     // 167 hours before NOW, which is what the usage page asks for.
     expect(

@@ -9,6 +9,14 @@ import {
 
 const MS_PER_HOUR = 3_600_000;
 
+/**
+ * The browser sends a `to` of its own now, and its clock is not this
+ * server's. One hour is the finest bucket the API meters, so a skew inside
+ * it cannot make a request mean something different — and refusing it would
+ * take the page down for anyone whose laptop runs fast.
+ */
+const CLOCK_SKEW_HOURS = 1;
+
 /** A consumption request the proxy can act on, with defaults resolved. */
 export interface ConsumptionQuery {
   from: string;
@@ -81,6 +89,15 @@ export const parseConsumptionQuery = (
   if (ageHours > reach) {
     return {
       error: `${granularity} consumption reaches back ${reach} hours; from is ${Math.ceil(ageHours)} hours ago`,
+      ok: false,
+    };
+  }
+
+  const aheadHours = (Date.parse(to) - now.getTime()) / MS_PER_HOUR;
+
+  if (aheadHours > CLOCK_SKEW_HOURS) {
+    return {
+      error: `to is ${Math.ceil(aheadHours)} hours in the future; nothing is metered past now`,
       ok: false,
     };
   }
