@@ -4,6 +4,7 @@ import { useChat } from "@ai-sdk/react";
 import { useQuery } from "@tanstack/react-query";
 import type { Checkpoint, Prototype } from "@vibe/db/schema";
 import { Button } from "@vibe/ui/components/button";
+import { Skeleton } from "@vibe/ui/components/skeleton";
 import { DefaultChatTransport } from "ai";
 import { GitCommitVertical, Monitor, Settings2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -799,6 +800,9 @@ function CheckpointsPanel({
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // "No checkpoints yet" before the first response is the same claim as
+  // reporting a failure as zero: nothing has been counted yet.
+  const [hasLoaded, setHasLoaded] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -813,6 +817,8 @@ function CheckpointsPanel({
       const message = "Couldn't load checkpoints.";
       setLoadError(message);
       onErrorChange?.(message);
+    } finally {
+      setHasLoaded(true);
     }
   }, [proto.id, onCountChange, onErrorChange]);
 
@@ -877,20 +883,26 @@ function CheckpointsPanel({
         className="min-h-0 flex-1 overflow-y-auto"
         currentId={proto.activeCheckpointId ?? undefined}
         empty={
+          // "No checkpoints yet" is a measurement, so it waits until one has
+          // been taken: not while the first request is open, and not when it
+          // came back a failure.
           loadError ? (
-            // "No checkpoints yet" is a measurement, and a failed request is
-            // not one.
             <EmptyState
               className="h-full"
               description="Your checkpoints could not be listed. Nothing has been lost."
               title="Checkpoints unavailable"
             />
-          ) : (
+          ) : hasLoaded ? (
             <EmptyState
               className="h-full"
               description="Checkpoints capture your app and database together as the agent works."
               title="No checkpoints yet"
             />
+          ) : (
+            <div className="space-y-2 py-2">
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-4/5" />
+            </div>
           )
         }
         onRestore={restore}
