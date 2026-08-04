@@ -47,6 +47,8 @@ import { relativeTime } from "@/lib/format";
 import { client, orpc } from "@/utils/orpc";
 
 const AGENT_URL = (process.env.NEXT_PUBLIC_AGENT_URL ?? "").replace(/\/+$/, "");
+/** How long the restore loader waits for the app to paint before lifting. */
+const RESTORE_SETTLE_TIMEOUT_MS = 30_000;
 const DEFAULT_MODEL = "qwen3-next-80b-a3b-instruct";
 const MODEL_STORAGE_KEY = "vibe:model";
 const EFFORT_STORAGE_KEY = "vibe:effort";
@@ -184,6 +186,7 @@ export function Workspace({
   // and the panel saying so is hidden behind the tab nobody opened. It has
   // to be reported on the surface the user is looking at.
   const [checkpointError, setCheckpointError] = useState<string | null>(null);
+  const settleRestore = useCallback(() => setRestoring(false), []);
 
   return (
     <div className="flex h-svh flex-col">
@@ -232,12 +235,11 @@ export function Workspace({
               </TooltipProvider>
             }
             className="min-h-0 flex-1"
+            // Only while that tab is closed: the panel says it too, with the
+            // retry, and two live regions announce the same sentence twice.
             notice={
-              checkpointError ? (
-                <span role="alert">
-                  <span className="font-mono text-destructive">checkpoints</span>{" "}
-                  {checkpointError}
-                </span>
+              checkpointError && tab !== "checkpoints" ? (
+                <span role="alert">{checkpointError}</span>
               ) : null
             }
             onValueChange={setTab}
@@ -246,6 +248,7 @@ export function Workspace({
                 content: (
                   <div className="relative h-full">
                     <PreviewPanel
+                      onRestoreSettled={settleRestore}
                       proto={proto}
                       refreshSignal={turn}
                       restoring={restoring}
@@ -705,15 +708,31 @@ function PreviewPanel({
   refreshSignal,
   working,
   restoring,
+  onRestoreSettled,
 }: {
   proto: Prototype;
   refreshSignal: number;
   working: boolean;
   restoring: boolean;
+  /** Called when the app has repainted after a restore. */
+  onRestoreSettled: () => void;
 }) {
   const [nonce, setNonce] = useState(0);
   const [waking, setWaking] = useState(false);
   const [liveUrl, setLiveUrl] = useState<string | null>(proto.sandboxUrl);
+
+  // An app that never repaints must not leave the restore loader up for
+  // good. Lifting the scrim shows whatever the sandbox is actually
+  // serving, which is the thing the user needs to see.
+  useEffect(() => {
+    if (!restoring) {
+      return;
+    }
+
+    const timer = window.setTimeout(onRestoreSettled, RESTORE_SETTLE_TIMEOUT_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [restoring, onRestoreSettled]);
   // Derived, not snapshotted: provisioning finishes AFTER mount, so the
   // polled sandboxUrl must be able to mount the frame on its own — wake()
   // then freshens the URL, it is not the gatekeeper.
@@ -757,6 +776,7 @@ function PreviewPanel({
     <PreviewFrame
       className="h-full"
       onRestart={wake}
+      onFrameLoad={restoring ? onRestoreSettled : undefined}
       reloadSignal={nonce}
       src={url}
       state={restoring || waking ? "waking" : "ready"}
@@ -836,12 +856,17 @@ function CheckpointsPanel({
         checkpointId: cid,
       });
       toast.success("Restored — code and database rolled back together.");
+      // Restoring stays true through the hand-off: clearing it here batches
+      // with the tab switch, so the preview would arrive already "ready" and
+      // the user would land on a blank iframe instead of the loader that
+      // narrates the dev server coming back. The preview clears it when the
+      // reloaded app has actually painted.
       onRestored(updated);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Restore failed");
+      onRestoringChange(false);
     } finally {
       setRestoringId(null);
-      onRestoringChange(false);
     }
   }
 
@@ -979,7 +1004,7 @@ function UsagePanel({ proto }: { proto: Prototype }) {
   const unprovisioned = projectIds.length === 0;
 
   return (
-    <section className="max-w-3xl overflow-y-auto">
+    <section className="h-full max-w-3xl overflow-y-auto">
       <p className="mb-4 text-muted-foreground text-xs">
         This app&rsquo;s Neon project, last {USAGE_WINDOW_DAYS} days.{" "}
         <Link className="underline underline-offset-2 hover:text-foreground" href="/usage">

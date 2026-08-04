@@ -153,7 +153,7 @@ export const WorkspaceTabs = ({
             <TabsTrigger
               aria-label={
                 typeof tab.count === "number" && tab.countLabel
-                  ? `${tab.label}, ${tab.count} ${tab.countLabel}`
+                  ? `${tab.count} ${tab.countLabel}`
                   : undefined
               }
               className="h-full flex-none rounded-none px-3 font-mono text-muted-foreground text-xs after:hidden hover:text-foreground data-active:bg-transparent data-active:text-foreground dark:data-active:border-transparent dark:data-active:bg-transparent"
@@ -205,7 +205,10 @@ export const WorkspaceTabs = ({
       ) : null}
       {tabs.map((tab) => (
         <TabsContent
-          className="fade-in-0 slide-in-from-bottom-1 min-h-0 flex-1 animate-in pt-4 duration-300 focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2 data-[hidden]:hidden motion-reduce:animate-none"
+          // A ring rather than an outline: the registry's TabsContent sets
+          // outline-none unconditionally, and an outline width with no style
+          // paints nothing. The triggers use a ring for the same reason.
+          className="fade-in-0 slide-in-from-bottom-1 min-h-0 flex-1 animate-in pt-4 duration-300 focus-visible:ring-2 focus-visible:ring-ring data-[hidden]:hidden motion-reduce:animate-none"
           key={tab.id}
           keepMounted={tab.keepMounted}
           value={tab.id}

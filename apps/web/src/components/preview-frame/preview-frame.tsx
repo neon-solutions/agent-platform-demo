@@ -32,6 +32,8 @@ export type PreviewFrameProps = Omit<ComponentProps<"div">, "title"> & {
    * the sandbox spins up, "error" offers a restart.
    */
   state?: PreviewFrameState;
+  /** Fires when the framed app finishes loading, reloads included. */
+  onFrameLoad?: () => void;
   /** Renders the wake action in the sleeping state. */
   onWake?: () => void;
   /** One line under the sleeping title. */
@@ -169,6 +171,7 @@ export const PreviewFrame = ({
   className,
   displaySrc,
   errorDetail,
+  onFrameLoad,
   onRefresh,
   onRestart,
   onWake,
@@ -284,6 +287,7 @@ export const PreviewFrame = ({
             state !== "ready" && "opacity-0",
           )}
           key={reloadSignal + refreshCount}
+          onLoad={onFrameLoad}
           sandbox={sandbox}
           src={src}
           title={title}
