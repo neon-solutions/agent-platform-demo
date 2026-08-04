@@ -26,6 +26,17 @@ export type BranchConsumptionMetricName =
 
 export type ConsumptionGranularity = "hourly" | "daily" | "monthly";
 
+/**
+ * How far back each granularity reaches. The v2 endpoint answers 406 for a
+ * range past its limit, so a window has to be sized to the granularity it
+ * will be requested at.
+ */
+export const MAX_WINDOW_HOURS: Record<ConsumptionGranularity, number> = {
+  daily: 60 * 24,
+  hourly: 168,
+  monthly: 365 * 24,
+};
+
 export type ConsumptionPlan = "launch" | "scale" | "agent" | "enterprise";
 
 /**
@@ -158,11 +169,19 @@ export const toGbMonths = (byteHours: number) =>
   byteHours / BILLING_HOURS_PER_MONTH / BYTES_PER_GB;
 
 /**
+ * byte-hours -> average bytes held over the window. Storage metrics are
+ * accumulations, not levels: reading one straight as bytes reports a day of
+ * holding 1 GB as 24 GB.
+ */
+export const toAverageBytes = (byteHours: number, hoursInPeriod: number) =>
+  hoursInPeriod > 0 ? byteHours / hoursInPeriod : 0;
+
+/**
  * byte-hours -> average GB held over the window, which is what the Neon
  * Console shows. Use this for "how big is my database", not for cost.
  */
 export const toAverageGb = (byteHours: number, hoursInPeriod: number) =>
-  hoursInPeriod > 0 ? byteHours / hoursInPeriod / BYTES_PER_GB : 0;
+  toAverageBytes(byteHours, hoursInPeriod) / BYTES_PER_GB;
 
 /** bytes -> GB. */
 export const toGigabytes = (bytes: number) => bytes / BYTES_PER_GB;
@@ -199,6 +218,30 @@ export const toBillingUnit = (
 
 /* ── Shaping the response ────────────────────────────────── */
 
+const MODELLED_METRICS = new Set<string>(CONSUMPTION_METRICS);
+
+const isConsumptionMetric = (name: string): name is ConsumptionMetricName =>
+  MODELLED_METRICS.has(name);
+
+/**
+ * Keeps the metrics this module models. Neon is free to add one; a metric we
+ * have no label, unit, or rate for cannot be displayed or priced, and
+ * carrying it as an unknown key would only surface as a blank row.
+ */
+const readValues = (
+  metrics: readonly ConsumptionMetricValue[]
+): ConsumptionBucket["values"] => {
+  const values: ConsumptionBucket["values"] = {};
+
+  for (const metric of metrics) {
+    if (isConsumptionMetric(metric.metric_name)) {
+      values[metric.metric_name] = metric.value;
+    }
+  }
+
+  return values;
+};
+
 /**
  * Flattens the API's nested periods into one bucket per timeframe, ordered
  * oldest first. Metrics that were zero are omitted from the response, so a
@@ -212,14 +255,46 @@ export const flattenConsumption = (
     .map((timeframe) => ({
       end: timeframe.timeframe_end ?? "",
       start: timeframe.timeframe_start ?? "",
-      values: Object.fromEntries(
-        (timeframe.metrics ?? []).map((metric) => [
-          metric.metric_name,
-          metric.value,
-        ])
-      ) as ConsumptionBucket["values"],
+      values: readValues(timeframe.metrics ?? []),
     }))
     .sort((a, b) => a.start.localeCompare(b.start));
+
+/**
+ * Sums the buckets that cover the same timeframe, oldest first.
+ *
+ * A fleet response carries one bucket per project per timeframe. Charting
+ * those unmerged draws one point per project per day, so a ten-app account
+ * reads as a sawtooth between apps rather than as its own total.
+ */
+export const mergeBuckets = (
+  buckets: readonly ConsumptionBucket[]
+): ConsumptionBucket[] => {
+  const byTimeframe = new Map<string, ConsumptionBucket>();
+
+  for (const bucket of buckets) {
+    const key = `${bucket.start}|${bucket.end}`;
+    const merged = byTimeframe.get(key);
+
+    if (merged === undefined) {
+      byTimeframe.set(key, {
+        end: bucket.end,
+        start: bucket.start,
+        values: { ...bucket.values },
+      });
+      continue;
+    }
+
+    for (const metric of CONSUMPTION_METRICS) {
+      const value = bucket.values[metric];
+
+      if (value !== undefined) {
+        merged.values[metric] = (merged.values[metric] ?? 0) + value;
+      }
+    }
+  }
+
+  return [...byTimeframe.values()].sort((a, b) => a.start.localeCompare(b.start));
+};
 
 /** Sums each metric across buckets, in raw API units. */
 export const sumBuckets = (
@@ -429,6 +504,57 @@ export const estimateCost = (
       unit: METRIC_BILLING_UNIT[metric],
       used,
     });
+  }
+
+  return {
+    items,
+    plan,
+    total: items.reduce((sum, item) => sum + item.cost, 0),
+  };
+};
+
+/**
+ * A fleet's cost as the sum of its per-project estimates.
+ *
+ * Allowances are per project, so they cannot be applied to a fleet total:
+ * ten projects moving 400 GB each are ten projects under the 500 GB
+ * allowance, not one account 3,500 GB over it. Same for the included
+ * branches, which every project gets its own share of.
+ */
+export const estimateFleetCost = (
+  perProject: readonly ConsumptionTotals[],
+  plan: ConsumptionPlan,
+  options: EstimateCostOptions = {}
+): CostEstimate => {
+  const merged = new Map<ConsumptionMetricName, CostLineItem>();
+
+  for (const totals of perProject) {
+    for (const item of estimateCost(totals, plan, { ...options, omitZero: false })
+      .items) {
+      const line = merged.get(item.id);
+
+      if (line === undefined) {
+        merged.set(item.id, { ...item });
+        continue;
+      }
+
+      line.cost += item.cost;
+      line.included += item.included;
+      line.quantity += item.quantity;
+      line.used += item.used;
+    }
+  }
+
+  const items: CostLineItem[] = [];
+
+  for (const metric of CONSUMPTION_METRICS) {
+    const line = merged.get(metric);
+
+    if (line === undefined || (options.omitZero && line.cost === 0)) {
+      continue;
+    }
+
+    items.push(line);
   }
 
   return {

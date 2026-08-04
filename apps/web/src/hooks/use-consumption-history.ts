@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { z } from "zod";
 
 import type {
   ConsumptionBucket,
@@ -9,7 +10,12 @@ import type {
   ConsumptionPeriod,
   ConsumptionTotals,
 } from "@/lib/consumption";
-import { CONSUMPTION_METRICS, flattenConsumption, sumBuckets } from "@/lib/consumption";
+import {
+  CONSUMPTION_METRICS,
+  flattenConsumption,
+  mergeBuckets,
+  sumBuckets,
+} from "@/lib/consumption";
 
 /**
  * Neon refreshes consumption roughly every 15 minutes and the endpoints
@@ -63,15 +69,47 @@ export interface UseConsumptionHistoryResult {
   holders: ConsumptionHolder[];
   isLoading: boolean;
   error: string | null;
-  /** Fetched-at timestamp; pair it with a metering-lag notice. */
+  /**
+   * When the data on screen was last fetched successfully. Null while a
+   * failure left nothing to show. Pair it with a metering-lag notice.
+   */
   updatedAt: Date | null;
   refresh: () => void;
 }
 
-interface ConsumptionResponse {
-  projects?: { project_id: string; periods: ConsumptionPeriod[] }[];
-  branches?: { branch_id: string; periods: ConsumptionPeriod[] }[];
-}
+/**
+ * The proxy hands back Neon's v2 body untouched, so this is that shape:
+ * every field the API omits on an empty bucket stays optional. Metric names
+ * are left as strings — Neon may add one, and a metric this module has no
+ * label or rate for is dropped downstream rather than treated as a fault.
+ */
+const periodSchema = z.object({
+  consumption: z
+    .array(
+      z.object({
+        metrics: z
+          .array(z.object({ metric_name: z.string(), value: z.number() }))
+          .optional(),
+        timeframe_end: z.string().optional(),
+        timeframe_start: z.string().optional(),
+      }),
+    )
+    .optional(),
+  period_id: z.string().optional(),
+  period_plan: z.string().optional(),
+  period_start: z.string().optional(),
+});
+
+const responseSchema = z.object({
+  branches: z
+    .array(z.object({ branch_id: z.string(), periods: z.array(periodSchema) }))
+    .optional(),
+  projects: z
+    .array(z.object({ project_id: z.string(), periods: z.array(periodSchema) }))
+    .optional(),
+});
+
+type ConsumptionResponse = z.infer<typeof responseSchema>;
 
 const buildQuery = (options: UseConsumptionHistoryOptions) => {
   const params = new URLSearchParams({
@@ -120,18 +158,21 @@ export const useConsumptionHistory = (
    * derived from that tag rather than set at the top of the effect: no
    * render cascade, and no window where stale data shows without a
    * pending state on refetch.
+   *
+   * `query` is kept alongside the key so a failure can tell a refetch of
+   * the same window from a switch to a different one.
    */
   const [settled, setSettled] = useState<{
     key: string;
+    query: string;
     holders: { id: string; periods: ConsumptionPeriod[] }[];
     error: string | null;
-    updatedAt: Date;
+    updatedAt: Date | null;
   } | null>(null);
   const [nonce, setNonce] = useState(0);
 
   const query = buildQuery(options);
   const requestKey = `${endpoint}?${query}#${nonce}`;
-  const abortRef = useRef<AbortController | null>(null);
 
   const refresh = useCallback(() => setNonce((value) => value + 1), []);
 
@@ -140,11 +181,16 @@ export const useConsumptionHistory = (
       return;
     }
 
-    const controller = new AbortController();
-    abortRef.current?.abort();
-    abortRef.current = controller;
+    let inFlight: AbortController | null = null;
+    let unmounted = false;
 
     const load = async () => {
+      // A poll that starts while the previous one is still open would
+      // otherwise race it, and the loser could land last.
+      inFlight?.abort();
+      const controller = new AbortController();
+      inFlight = controller;
+
       try {
         const response = await fetch(`${endpoint}?${query}`, {
           signal: controller.signal,
@@ -154,27 +200,32 @@ export const useConsumptionHistory = (
           throw new Error(`Consumption request failed (${response.status})`);
         }
 
-        const payload = (await response.json()) as ConsumptionResponse;
-
         setSettled({
           error: null,
-          holders: readHolders(payload),
+          holders: readHolders(responseSchema.parse(await response.json())),
           key: requestKey,
+          query,
           updatedAt: new Date(),
         });
       } catch (error) {
-        if (controller.signal.aborted) {
+        if (controller.signal.aborted || unmounted) {
           return;
         }
 
-        // Keep the last good numbers on screen; the error line says why
-        // they stopped moving.
-        setSettled((previous) => ({
-          error: error instanceof Error ? error.message : "Request failed",
-          holders: previous?.holders ?? [],
-          key: requestKey,
-          updatedAt: new Date(),
-        }));
+        // Keep the last good numbers on screen only when they answer the
+        // same question; data fetched for another window or granularity
+        // would be relabelled as this one's.
+        setSettled((previous) => {
+          const reusable = previous?.query === query ? previous : null;
+
+          return {
+            error: error instanceof Error ? error.message : "Request failed",
+            holders: reusable?.holders ?? [],
+            key: requestKey,
+            query,
+            updatedAt: reusable?.updatedAt ?? null,
+          };
+        });
       }
     };
 
@@ -186,7 +237,8 @@ export const useConsumptionHistory = (
         : window.setInterval(() => void load(), Math.max(pollIntervalMs, MIN_POLL_INTERVAL_MS));
 
     return () => {
-      controller.abort();
+      unmounted = true;
+      inFlight?.abort();
 
       if (interval !== null) {
         window.clearInterval(interval);
@@ -196,7 +248,9 @@ export const useConsumptionHistory = (
 
   const rawHolders = settled?.holders ?? [];
   const periods = rawHolders.flatMap((holder) => holder.periods);
-  const buckets = flattenConsumption(periods);
+  // Every holder reports the same timeframes, so the account series is the
+  // sum per timeframe — not every holder's buckets laid end to end.
+  const buckets = mergeBuckets(flattenConsumption(periods));
   const holders: ConsumptionHolder[] = rawHolders.map((holder) => {
     const holderBuckets = flattenConsumption(holder.periods);
 
