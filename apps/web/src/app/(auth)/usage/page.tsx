@@ -17,18 +17,30 @@ import { useConsumptionHistory } from "@/hooks/use-consumption-history";
 import {
   type ConsumptionBucket,
   type ConsumptionMetricName,
-  estimateCost,
+  estimateFleetCost,
   hoursBetween,
   METRIC_COLORS,
   METRIC_LABELS,
   STORAGE_METRICS,
+  toAverageBytes,
   toBillingUnit,
 } from "@/lib/consumption";
 import { hasMeteredData, NOT_METERED } from "@/lib/usage";
 import { orpc } from "@/utils/orpc";
 
-const WINDOW_DAYS = 14;
-const DAY_MS = 24 * 60 * 60 * 1000;
+/**
+ * Each granularity reaches back only so far, so the window is sized to the
+ * one being requested. Hourly stops one hour short of its 168-hour ceiling
+ * because Neon rounds `from` down to the hour, which would push a full 168
+ * past the limit and answer 406.
+ */
+const WINDOW_HOURS: Record<ConsumptionGranularityOption, number> = {
+  daily: 14 * 24,
+  hourly: 167,
+  monthly: 365 * 24,
+};
+const HOUR_MS = 60 * 60 * 1000;
+const HOURS_PER_DAY = 24;
 
 /**
  * Tenant apps sit in Neon's agent-plan orgs, so that is the rate card the
@@ -47,38 +59,80 @@ const CHART_METRICS: ConsumptionMetricName[] = [
 
 const NUMBER = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
 
-/** "Feb 4" from a bucket's RFC 3339 start. */
+/**
+ * "Feb 4" from a bucket's RFC 3339 start. Day and month boundaries are UTC
+ * ones, so they are labelled in UTC: west of Greenwich a local format names
+ * the day before the one the bucket covers.
+ */
 function bucketLabel(start: string, granularity: ConsumptionGranularityOption): string {
   const date = new Date(start);
   if (granularity === "hourly") {
     return date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
   }
   if (granularity === "monthly") {
-    return date.toLocaleDateString(undefined, { month: "short", year: "numeric" });
+    return date.toLocaleDateString(undefined, {
+      month: "short",
+      timeZone: "UTC",
+      year: "numeric",
+    });
   }
-  return date.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  return date.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    timeZone: "UTC",
+  });
 }
 
 /** One metric's samples as UsageCard points, in native units. */
-function samples(buckets: ConsumptionBucket[], metric: ConsumptionMetricName) {
+function samples(
+  buckets: ConsumptionBucket[],
+  metric: ConsumptionMetricName,
+  granularity: ConsumptionGranularityOption,
+) {
   return buckets.map((bucket) => ({
-    label: bucketLabel(bucket.start, "daily"),
+    label: bucketLabel(bucket.start, granularity),
     value: bucket.values[metric] ?? 0,
   }));
+}
+
+/**
+ * Storage as bytes actually held, per bucket.
+ *
+ * The storage metrics are byte-hours — an accumulation, not a level. A day
+ * of holding 1 GB arrives as 24 GB-hours, so handing the raw value to a card
+ * that formats bytes claims 24 GB of data.
+ */
+function storageSamples(
+  buckets: ConsumptionBucket[],
+  granularity: ConsumptionGranularityOption,
+) {
+  return buckets.map((bucket) => {
+    const byteHours = STORAGE_METRICS.reduce(
+      (sum, metric) => sum + (bucket.values[metric] ?? 0),
+      0,
+    );
+
+    return {
+      label: bucketLabel(bucket.start, granularity),
+      value: toAverageBytes(byteHours, hoursBetween(bucket.start, bucket.end)),
+    };
+  });
 }
 
 export default function UsagePage() {
   const [granularity, setGranularity] = useState<ConsumptionGranularityOption>("daily");
 
   // The window is stable across renders: a fresh Date on every render would
-  // change the hook's request key and refetch forever.
+  // change the hook's request key and refetch forever. It does move when the
+  // granularity does, because each one reaches back a different distance.
+  const windowHours = WINDOW_HOURS[granularity];
   const { from, to } = useMemo(() => {
     const end = new Date();
     return {
-      from: new Date(end.getTime() - WINDOW_DAYS * DAY_MS).toISOString(),
+      from: new Date(end.getTime() - windowHours * HOUR_MS).toISOString(),
       to: end.toISOString(),
     };
-  }, []);
+  }, [windowHours]);
 
   const prototypes = useQuery(orpc.prototypes.list.queryOptions());
   const apps = prototypes.data ?? [];
@@ -104,9 +158,13 @@ export default function UsagePage() {
     ),
   }));
 
-  const cost = estimateCost(totals, RATE_PLAN, {
-    hoursInPeriod: hoursBetween(from, to),
-  });
+  // Per project, then summed: allowances are granted per project, so a fleet
+  // total run through one allowance bills traffic nobody is charged for.
+  const cost = estimateFleetCost(
+    holders.map((holder) => holder.totals),
+    RATE_PLAN,
+    { hoursInPeriod: hoursBetween(from, to) },
+  );
 
   const storage = STORAGE_METRICS.map((metric) => ({
     color: METRIC_COLORS[metric],
@@ -141,7 +199,21 @@ export default function UsagePage() {
   // Zeros are a claim. Until Neon has actually metered something, say so
   // once instead of printing "0" five times in five different shapes.
   const metered = hasMeteredData(buckets);
-  const showFigures = loading || metered;
+  // A failed first fetch is not an unmetered account. Render the cards so
+  // they can carry the error, rather than reporting the outage as a fact
+  // about the usage.
+  const showFigures = loading || metered || error !== null;
+  // The app list failing is the one case where there is nothing to render a
+  // card around, so it has to be said here instead.
+  const appsError = prototypes.error
+    ? `${prototypes.error.message} Reload to try again.`
+    : null;
+  const emptyState = hasApps
+    ? NOT_METERED
+    : {
+        description: "Usage appears here once an app has a database behind it.",
+        title: "No apps yet",
+      };
 
   return (
     <div className="flex min-h-svh flex-col">
@@ -154,7 +226,7 @@ export default function UsagePage() {
           <p className="mt-1 text-muted-foreground text-sm">
             Metered straight from Neon, across every app on your account.{" "}
             <span className="text-muted-foreground/70">
-              Last {WINDOW_DAYS} days · {period}
+              Last {Math.round(windowHours / HOURS_PER_DAY)} days · {period}
             </span>
           </p>
         </header>
@@ -163,20 +235,20 @@ export default function UsagePage() {
           <div className="space-y-6">
             <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <UsageCard
-                data={samples(buckets, "compute_unit_seconds")}
+                data={samples(buckets, "compute_unit_seconds", granularity)}
                 error={error}
                 isLoading={loading}
                 metric="compute"
               />
               <UsageCard
-                data={samples(buckets, "root_branch_bytes_month")}
+                data={storageSamples(buckets, granularity)}
                 error={error}
                 isLoading={loading}
                 label="Storage"
                 metric="storage"
               />
               <UsageCard
-                data={samples(buckets, "public_network_transfer_bytes")}
+                data={samples(buckets, "public_network_transfer_bytes", granularity)}
                 error={error}
                 isLoading={loading}
                 label="Data out"
@@ -244,12 +316,8 @@ export default function UsagePage() {
           </div>
         ) : (
           <EmptyState
-            description={
-              hasApps
-                ? NOT_METERED.description
-                : "Usage appears here once an app has a database behind it."
-            }
-            title={hasApps ? NOT_METERED.title : "No apps yet"}
+            description={appsError ?? emptyState.description}
+            title={appsError ? "Could not load your apps" : emptyState.title}
           />
         )}
       </main>
