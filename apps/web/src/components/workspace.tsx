@@ -721,22 +721,16 @@ function PreviewPanel({
   const [waking, setWaking] = useState(false);
   const [liveUrl, setLiveUrl] = useState<string | null>(proto.sandboxUrl);
 
-  // An app that never repaints must not leave the restore loader up for
-  // good. Lifting the scrim shows whatever the sandbox is actually
-  // serving, which is the thing the user needs to see.
-  useEffect(() => {
-    if (!restoring) {
-      return;
-    }
-
-    const timer = window.setTimeout(onRestoreSettled, RESTORE_SETTLE_TIMEOUT_MS);
-
-    return () => window.clearTimeout(timer);
-  }, [restoring, onRestoreSettled]);
+  const [awaitingRestorePaint, setAwaitingRestorePaint] = useState(false);
   // Derived, not snapshotted: provisioning finishes AFTER mount, so the
   // polled sandboxUrl must be able to mount the frame on its own — wake()
   // then freshens the URL, it is not the gatekeeper.
   const url = liveUrl ?? proto.sandboxUrl;
+
+  // Read rather than depended on: adding it would reload the preview every
+  // time a restore starts or ends, not only when the turn signal moves.
+  const restoringRef = useRef(restoring);
+  restoringRef.current = restoring;
 
   // Reload the preview iframe after each agent turn (Next.js recompiled).
   const firstSignal = useRef(true);
@@ -746,7 +740,34 @@ function PreviewPanel({
       return;
     }
     setNonce((n) => n + 1);
+
+    if (restoringRef.current) {
+      setAwaitingRestorePaint(true);
+    }
   }, [refreshSignal]);
+
+  /**
+   * An app that never repaints must not leave the restore loader up for
+   * good; lifting the scrim shows whatever the sandbox is actually serving.
+   *
+   * The wait starts at the reload, not at the restore. A restore runs a git
+   * reset, an npm install, and a dev-server boot server-side before it
+   * returns — minutes, on occasion — and a bound covering that would fire
+   * mid-restore and drop the user onto the blank frame this exists to
+   * prevent.
+   */
+  useEffect(() => {
+    if (!(restoring && awaitingRestorePaint)) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setAwaitingRestorePaint(false);
+      onRestoreSettled();
+    }, RESTORE_SETTLE_TIMEOUT_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [awaitingRestorePaint, restoring, onRestoreSettled]);
 
   // Sandboxes suspend/stop on their idle timeout, so opening a preview after
   // a while can 502. Wake it (resume + restart the dev server) when ready.
@@ -776,7 +797,14 @@ function PreviewPanel({
     <PreviewFrame
       className="h-full"
       onRestart={wake}
-      onFrameLoad={restoring ? onRestoreSettled : undefined}
+      onFrameLoad={
+        restoring
+          ? () => {
+              setAwaitingRestorePaint(false);
+              onRestoreSettled();
+            }
+          : undefined
+      }
       reloadSignal={nonce}
       src={url}
       state={restoring || waking ? "waking" : "ready"}
