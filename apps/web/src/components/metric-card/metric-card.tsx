@@ -35,7 +35,12 @@ const CURRENCY_FORMAT = new Intl.NumberFormat("en-US", {
   style: "currency",
 });
 const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB", "PB"] as const;
-const BYTE_STEP = 1024;
+/**
+ * Decimal, because these cards read Neon's meters and Neon counts 10^9
+ * bytes to the gigabyte. A binary step under a decimal label puts this card
+ * ~7% below the console for the same bytes.
+ */
+const BYTE_STEP = 1000;
 const SECONDS_PER_MINUTE = 60;
 const SECONDS_PER_HOUR = 3600;
 

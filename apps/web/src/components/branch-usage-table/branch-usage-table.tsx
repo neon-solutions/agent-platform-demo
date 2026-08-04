@@ -1,10 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { createContext, useContext, useState } from "react";
 import type { ComponentProps, ReactNode } from "react";
 
 import { Skeleton } from "@vibe/ui/components/skeleton";
 import { cn } from "@vibe/ui/lib/utils";
+
+/** Read by the header, the totals row, and the empty state. */
+const RowNounContext = createContext({ many: "branches", one: "Branch" });
 
 export interface BranchUsageColumn {
   /** Keys into each row's `metrics`, e.g. "compute_unit_seconds". */
@@ -77,6 +80,12 @@ export type BranchUsageTableProps = Omit<
   error?: string | null;
   /** Shown when `rows` is empty. */
   empty?: ReactNode;
+  /**
+   * What a row is, when it is not a branch. The same ranking reads for
+   * projects or apps, and a column headed "Branch" over a list of app names
+   * tells the reader they are looking at something else.
+   */
+  rowNoun?: { one: string; many: string };
   /** Quiet footer, e.g. a metering-lag notice. */
   meteredThrough?: string;
 };
@@ -440,7 +449,7 @@ const TotalsRow = ({
     <td
       className={`py-1.5 pr-3 text-muted-foreground text-xs ${STACK_AT}:block`}
     >
-      {`all ${rows.length} branches`}
+      {`all ${rows.length} ${useContext(RowNounContext).many}`}
     </td>
     {columns.map((column) => (
       <MetricCell
@@ -488,7 +497,7 @@ const UsageTable = ({
           className="py-1.5 pr-3 text-left font-normal text-muted-foreground text-xs"
           scope="col"
         >
-          Branch
+          {useContext(RowNounContext).one}
         </th>
         {columns.map((column) => (
           <SortableHeader
@@ -583,7 +592,7 @@ const UsageBody = ({
       <div className="flex h-24 items-center justify-center rounded-md border border-border/50 border-dashed">
         {empty ?? (
           <p className="text-muted-foreground text-xs">
-            no branch consumption in this window
+            {`no ${useContext(RowNounContext).one.toLowerCase()} consumption in this window`}
           </p>
         )}
       </div>
@@ -650,6 +659,7 @@ export const BranchUsageTable = ({
   meteredThrough,
   onSelectBranch,
   onSortChange,
+  rowNoun = { many: "branches", one: "Branch" },
   rows,
   showTotals = true,
   sort,
@@ -693,6 +703,7 @@ export const BranchUsageTable = ({
   }
 
   return (
+    <RowNounContext.Provider value={rowNoun}>
     <section
       className={cn(
         "rounded-lg border border-border/60 bg-card p-4",
@@ -743,5 +754,6 @@ export const BranchUsageTable = ({
         </p>
       ) : null}
     </section>
+    </RowNounContext.Provider>
   );
 };

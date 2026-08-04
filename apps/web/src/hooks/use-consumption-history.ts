@@ -215,7 +215,19 @@ export const useConsumptionHistory = (
         });
 
         if (!response.ok) {
-          throw new Error(`Consumption request failed (${response.status})`);
+          // The proxy explains a refused request — which window it wanted,
+          // which limit was crossed. Reporting only the status code throws
+          // that away and leaves the user with a number.
+          const body: unknown = await response.json().catch(() => null);
+          const reason =
+            typeof body === "object" &&
+            body !== null &&
+            "error" in body &&
+            typeof body.error === "string"
+              ? body.error
+              : `request failed (${response.status})`;
+
+          throw new Error(reason);
         }
 
         setSettled({

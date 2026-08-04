@@ -54,7 +54,9 @@ const USAGE_METRICS: Record<UsageMetric, UsageMetricConfig> = {
     format: "number",
     label: "Compute",
     toDisplay: secondsToHours,
-    unit: "hrs",
+    // Compute-unit hours, not wall-clock hours: a 4 CU compute running for
+    // an hour is 4 CU-hr. "hrs" would understate it by the compute size.
+    unit: "CU-hr",
   },
   storage: {
     aggregate: "last",

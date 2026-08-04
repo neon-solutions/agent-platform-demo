@@ -141,22 +141,22 @@ export const STORAGE_METRICS = [
  * different series in the next, and the reader learns the wrong lesson.
  * Pass these to a chart's `series` or a breakdown's `segments`.
  *
- * Eight metrics share five chart tokens. The assignment deliberately
- * avoids giving neighbouring steps of the ramp to metrics that stack
- * next to each other: root, child, instant restore, and snapshots read
- * mid, pale, deep, brand, so every boundary in a storage stack is a
- * large jump in lightness. A chart plotting storage and transfer at once
+ * Eight metrics share five chart tokens, so some pair has to repeat. The
+ * four storage metrics take four distinct tokens, and compute takes the
+ * fifth, which keeps every series that is plotted or stacked together
+ * distinguishable. The repeats are between transfer metrics and storage
+ * ones, which no component draws in the same frame. A chart that does
  * should pass its own colors.
  */
 export const METRIC_COLORS: Record<ConsumptionMetricName, string> = {
-  child_branch_bytes_month: "var(--chart-1)",
+  child_branch_bytes_month: "var(--chart-4)",
   compute_unit_seconds: "var(--chart-2)",
   extra_branches_month: "var(--chart-5)",
-  instant_restore_bytes_month: "var(--chart-4)",
+  instant_restore_bytes_month: "var(--chart-5)",
   private_network_transfer_bytes: "var(--chart-4)",
   public_network_transfer_bytes: "var(--chart-5)",
   root_branch_bytes_month: "var(--chart-3)",
-  snapshot_storage_bytes_month: "var(--chart-2)",
+  snapshot_storage_bytes_month: "var(--chart-1)",
 };
 
 /* ── Unit conversion ─────────────────────────────────────── */

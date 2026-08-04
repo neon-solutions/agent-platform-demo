@@ -136,19 +136,30 @@ const LineRow = ({ line, share }: { line: CostLine; share: number }) => (
   </li>
 );
 
-/** The lines that cost nothing, said once instead of a row each. */
-const ZeroRow = ({ lines }: { lines: CostLine[] }) => (
+/**
+ * The lines that cost nothing, said once instead of a row each. A line
+ * reaches here either unused or covered by an allowance, and those are
+ * different facts — usage inside the allowance is still usage, and the card
+ * above this one is showing it.
+ */
+const ZeroRow = ({ lines }: { lines: CostLine[] }) => {
+  const covered = lines.filter((line) => (line.used ?? 0) > 0).length;
+
+  return (
   <li className="flex items-baseline gap-3 py-1.5">
     <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground/70">
-      {lines.length} with no usage ·{" "}
-      {lines.map((line) => line.label).join(", ")}
+      {covered > 0
+        ? `${lines.length} at no charge, ${covered} covered by the plan`
+        : `${lines.length} with no usage`}{" "}
+      · {lines.map((line) => line.label).join(", ")}
     </span>
     <span className="font-mono text-[11px] text-muted-foreground/70 tabular-nums">
       {CURRENCY.format(0)}
     </span>
     <span className="w-12" />
   </li>
-);
+  );
+};
 
 /**
  * Below this share the fill is too narrow to hold its own label, so the

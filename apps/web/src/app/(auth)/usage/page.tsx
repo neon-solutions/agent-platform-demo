@@ -56,7 +56,7 @@ const RATE_PLAN = "agent" as const;
  * already spent part of the allowance shown here.
  */
 const COST_NOTE =
-  "estimate · agent rates over this window, not a billing period — allowances reset monthly, and the invoice is the source of truth";
+  "estimate · paid apps only, at agent rates over this window rather than a billing period — allowances reset monthly, metering lags ~15m, and the invoice is the source of truth";
 
 /** Metrics worth plotting over time; storage gets its own breakdown. */
 const CHART_METRICS: ConsumptionMetricName[] = [
@@ -147,12 +147,13 @@ export default function UsagePage() {
   const apps = prototypes.data ?? [];
   const provisioned = apps.filter((app) => app.neonProjectId);
 
-  const { buckets, totals, holders, isLoading, error, updatedAt } = useConsumptionHistory({
-    enabled: provisioned.length > 0,
-    from,
-    granularity,
-    to,
-  });
+  const { buckets, totals, holders, isLoading, error, refresh, updatedAt } =
+    useConsumptionHistory({
+      enabled: provisioned.length > 0,
+      from,
+      granularity,
+      to,
+    });
 
   const loading = prototypes.isLoading || isLoading;
   const period = `${new Date(from).toLocaleDateString(undefined, {
@@ -167,21 +168,34 @@ export default function UsagePage() {
     ),
   }));
 
-  // Per project, then summed: allowances are granted per project, so a fleet
-  // total run through one allowance bills traffic nobody is charged for.
+  /**
+   * Only the paid apps are priced. The other tenant org is a sponsored free
+   * plan whose consumption nobody is billed for, and putting a dollar figure
+   * on it would invent a charge.
+   *
+   * Per project, then summed: allowances are granted per project, so a fleet
+   * total run through one allowance bills traffic nobody is charged for.
+   */
+  const paidProjectIds = new Set(
+    provisioned.filter((app) => app.plan === "paid").map((app) => app.neonProjectId),
+  );
+  const paidHolders = holders.filter((holder) => paidProjectIds.has(holder.id));
   const cost = estimateFleetCost(
-    holders.map((holder) => holder.totals),
+    paidHolders.map((holder) => holder.totals),
     RATE_PLAN,
     { hoursInPeriod: hoursBetween(from, to) },
   );
 
+  // Zero segments keep their row: a metric the API omitted is zero, which is
+  // a reading, and dropping it makes the breakdown claim the metric does not
+  // apply to this account.
   const storage = STORAGE_METRICS.map((metric) => ({
     color: METRIC_COLORS[metric],
     id: metric,
     label: METRIC_LABELS[metric],
     rate: cost.items.find((item) => item.id === metric)?.rate,
     value: toBillingUnit(metric, totals[metric] ?? 0),
-  })).filter((segment) => segment.value > 0);
+  }));
 
   /**
    * One row per app, not per branch: every app IS one Neon project with one
@@ -208,10 +222,14 @@ export default function UsagePage() {
   // Zeros are a claim. Until Neon has actually metered something, say so
   // once instead of printing "0" five times in five different shapes.
   const metered = hasMeteredData(buckets);
-  // A failed first fetch is not an unmetered account. Render the cards so
-  // they can carry the error, rather than reporting the outage as a fact
-  // about the usage.
-  const showFigures = loading || metered || error !== null;
+  /**
+   * A failed fetch is not an unmetered account, and it is not an account of
+   * zeroes either. With nothing to show, the page says what happened once;
+   * with data already on screen, the banner says it has stopped moving and
+   * the figures stay as they were. Either way the components are never
+   * handed empty arrays to render as measurements.
+   */
+  const showFigures = loading || metered;
   // The app list failing is the one case where there is nothing to render a
   // card around, so it has to be said here instead.
   const appsError = prototypes.error
@@ -223,6 +241,17 @@ export default function UsagePage() {
         description: "Usage appears here once an app has a database behind it.",
         title: "No apps yet",
       };
+  /**
+   * A fetch time, said as one. Neon meters roughly every 15 minutes, so the
+   * figures are older than this timestamp by an unknown amount inside that
+   * window — "metered through" would claim the opposite.
+   */
+  const meteredThrough = updatedAt
+    ? `fetched ${updatedAt.toLocaleTimeString(undefined, {
+        hour: "2-digit",
+        minute: "2-digit",
+      })} · Neon meters every ~15 min`
+    : undefined;
 
   return (
     <div className="flex min-h-svh flex-col">
@@ -240,46 +269,59 @@ export default function UsagePage() {
           </p>
         </header>
 
+        {error ? (
+          <p
+            className="mb-6 flex flex-wrap items-baseline gap-x-2 gap-y-1 rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm"
+            role="alert"
+          >
+            <span className="font-mono text-destructive text-xs">
+              {metered ? "not updating" : "no reading"}
+            </span>
+            <span className="text-foreground">{error}</span>
+            {metered ? (
+              <span className="text-muted-foreground">
+                Showing the last figures that loaded.
+              </span>
+            ) : null}
+            <button
+              className="font-medium text-foreground underline underline-offset-4 hover:text-primary"
+              onClick={refresh}
+              type="button"
+            >
+              Try again
+            </button>
+          </p>
+        ) : null}
+
         {hasApps && showFigures ? (
           <div className="space-y-6">
             <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <UsageCard
                 data={samples(buckets, "compute_unit_seconds", granularity)}
-                error={error}
                 isLoading={loading}
                 metric="compute"
               />
               <UsageCard
                 data={storageSamples(buckets, granularity)}
-                error={error}
                 isLoading={loading}
-                label="Storage"
+                label="Storage held"
                 metric="storage"
               />
               <UsageCard
                 data={samples(buckets, "public_network_transfer_bytes", granularity)}
-                error={error}
                 isLoading={loading}
-                label="Data out"
+                label="Public data out"
                 metric="written-data"
               />
             </section>
 
             <ConsumptionChart
               data={chartData}
-              error={error}
               formatValue={(value) => NUMBER.format(value)}
               granularities={["hourly", "daily"]}
               granularity={granularity}
               isLoading={loading}
-              meteredThrough={
-                updatedAt
-                  ? `metered through ${updatedAt.toLocaleTimeString(undefined, {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}`
-                  : undefined
-              }
+              meteredThrough={meteredThrough}
               onGranularityChange={setGranularity}
               series={CHART_METRICS.map((metric) => ({
                 color: METRIC_COLORS[metric],
@@ -292,16 +334,14 @@ export default function UsagePage() {
 
             <div className="grid gap-6 lg:grid-cols-2">
               <StorageBreakdown
-                error={error}
                 isLoading={loading}
                 period={period}
                 segments={storage}
-                title="Storage"
+                title="Storage accrued"
                 unit="GB-mo"
               />
               <CostEstimateCard
                 collapseZero
-                error={error}
                 isLoading={loading}
                 lines={cost.items}
                 note={COST_NOTE}
@@ -316,8 +356,9 @@ export default function UsagePage() {
                 label: METRIC_LABELS[metric],
                 unit: metric === "compute_unit_seconds" ? "CU-hr" : "GB-mo",
               }))}
-              error={error}
               isLoading={loading}
+              meteredThrough={meteredThrough}
+              rowNoun={{ many: "apps", one: "App" }}
               rows={rows}
               showTotals
               title="By app"
