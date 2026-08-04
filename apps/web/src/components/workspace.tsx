@@ -187,6 +187,7 @@ export function Workspace({
   // to be reported on the surface the user is looking at.
   const [checkpointError, setCheckpointError] = useState<string | null>(null);
   const settleRestore = useCallback(() => setRestoring(false), []);
+  const [restoreCount, setRestoreCount] = useState(0);
 
   return (
     <div className="flex h-svh flex-col">
@@ -251,6 +252,7 @@ export function Workspace({
                       onRestoreSettled={settleRestore}
                       proto={proto}
                       refreshSignal={turn}
+                      restoreSignal={restoreCount}
                       restoring={restoring}
                       working={agentBusy}
                     />
@@ -271,6 +273,7 @@ export function Workspace({
                     onRestored={(p) => {
                       setProto(p);
                       setTurn((t) => t + 1);
+                      setRestoreCount((c) => c + 1);
                       // The restore's payoff is the app reverting, and that
                       // renders in the preview. Staying here would put the
                       // demo's whole point on a hidden panel.
@@ -708,12 +711,15 @@ function PreviewPanel({
   refreshSignal,
   working,
   restoring,
+  restoreSignal,
   onRestoreSettled,
 }: {
   proto: Prototype;
   refreshSignal: number;
   working: boolean;
   restoring: boolean;
+  /** Bumps when a restore has finished and its reload is on the way. */
+  restoreSignal: number;
   /** Called when the app has repainted after a restore. */
   onRestoreSettled: () => void;
 }) {
@@ -727,11 +733,6 @@ function PreviewPanel({
   // then freshens the URL, it is not the gatekeeper.
   const url = liveUrl ?? proto.sandboxUrl;
 
-  // Read rather than depended on: adding it would reload the preview every
-  // time a restore starts or ends, not only when the turn signal moves.
-  const restoringRef = useRef(restoring);
-  restoringRef.current = restoring;
-
   // Reload the preview iframe after each agent turn (Next.js recompiled).
   const firstSignal = useRef(true);
   useEffect(() => {
@@ -740,11 +741,19 @@ function PreviewPanel({
       return;
     }
     setNonce((n) => n + 1);
-
-    if (restoringRef.current) {
-      setAwaitingRestorePaint(true);
-    }
   }, [refreshSignal]);
+
+  // Its own signal rather than "a turn that happened while restoring": an
+  // agent finishing mid-restore bumps the turn too, and inferring from that
+  // would start waiting for a repaint the restore has not asked for yet.
+  const firstRestore = useRef(true);
+  useEffect(() => {
+    if (firstRestore.current) {
+      firstRestore.current = false;
+      return;
+    }
+    setAwaitingRestorePaint(true);
+  }, [restoreSignal]);
 
   /**
    * An app that never repaints must not leave the restore loader up for
@@ -797,8 +806,11 @@ function PreviewPanel({
     <PreviewFrame
       className="h-full"
       onRestart={wake}
+      // Only the load this restore is waiting on settles it. An HMR reload
+      // or a restart while the restore is still running would otherwise
+      // lift the scrim off an app that has not come back yet.
       onFrameLoad={
-        restoring
+        restoring && awaitingRestorePaint
           ? () => {
               setAwaitingRestorePaint(false);
               onRestoreSettled();
@@ -852,21 +864,39 @@ function CheckpointsPanel({
   // reporting a failure as zero: nothing has been counted yet.
   const [hasLoaded, setHasLoaded] = useState(false);
 
+  // A retry and the after-a-turn reload can be open at once, and the older
+  // one landing last would put its error back over fresher rows.
+  const latestLoad = useRef(0);
+
   const load = useCallback(async () => {
+    latestLoad.current += 1;
+    const generation = latestLoad.current;
+
     try {
       const rows = await client.prototypes.checkpoints({ id: proto.id });
+
+      if (generation !== latestLoad.current) {
+        return;
+      }
+
       setCheckpoints(rows);
       setLoadError(null);
       onErrorChange?.(null);
       onCountChange?.(rows.length);
     } catch {
+      if (generation !== latestLoad.current) {
+        return;
+      }
+
       // A failed request is not an empty timeline. Reporting it as zero
       // checkpoints tells the user their work was never saved.
       const message = "Couldn't load checkpoints.";
       setLoadError(message);
       onErrorChange?.(message);
     } finally {
-      setHasLoaded(true);
+      if (generation === latestLoad.current) {
+        setHasLoaded(true);
+      }
     }
   }, [proto.id, onCountChange, onErrorChange]);
 
@@ -942,7 +972,7 @@ function CheckpointsPanel({
           loadError ? (
             <EmptyState
               className="h-full"
-              description="Your checkpoints could not be listed. Nothing has been lost."
+              description="The list could not be loaded, so this is not a count of zero."
               title="Checkpoints unavailable"
             />
           ) : hasLoaded ? (
