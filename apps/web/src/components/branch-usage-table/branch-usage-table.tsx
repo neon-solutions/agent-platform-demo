@@ -374,7 +374,7 @@ const RankedList = ({
           onClick={onOpenTail}
           type="button"
         >
-          {`${tail.length} other branches`}
+          {`${tail.length} other ${useContext(RowNounContext).many}`}
           <span className="ml-1.5 text-[10px] text-muted-foreground/60">
             show
           </span>
@@ -388,7 +388,7 @@ const RankedList = ({
     {showTotals ? (
       <li className="flex items-baseline gap-3 border-border/50 border-t pt-2">
         <span className="flex-1 text-muted-foreground text-xs">
-          {`all ${totalRows.length} branches`}
+          {`all ${totalRows.length} ${useContext(RowNounContext).many}`}
         </span>
         <span className="font-mono text-[13px] text-muted-foreground tabular-nums">
           {formatCell(column, sumBy(totalRows, column.id))}
@@ -417,7 +417,7 @@ const TailRow = ({
         onClick={onOpen}
         type="button"
       >
-        {tail.length} other branches
+        {`${tail.length} other ${useContext(RowNounContext).many}`}
         <span className="ml-1.5 text-[10px] text-muted-foreground/60">
           show
         </span>
