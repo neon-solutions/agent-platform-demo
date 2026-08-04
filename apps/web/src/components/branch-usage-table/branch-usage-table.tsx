@@ -586,13 +586,14 @@ const UsageBody = ({
   totalRows: BranchUsageRow[];
 }) => {
   const [firstColumn] = columns;
+  const noun = useContext(RowNounContext);
 
   if (ranked.length === 0) {
     return (
       <div className="flex h-24 items-center justify-center rounded-md border border-border/50 border-dashed">
         {empty ?? (
           <p className="text-muted-foreground text-xs">
-            {`no ${useContext(RowNounContext).one.toLowerCase()} consumption in this window`}
+            {`no ${noun.one.toLowerCase()} consumption in this window`}
           </p>
         )}
       </div>

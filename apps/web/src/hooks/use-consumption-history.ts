@@ -230,9 +230,18 @@ export const useConsumptionHistory = (
           throw new Error(reason);
         }
 
+        const parsed = responseSchema.safeParse(await response.json());
+
+        if (!parsed.success) {
+          // The schema's own message is a dump of every issue, which is a
+          // developer's artefact. What the reader can act on is that the
+          // answer was unusable.
+          throw new Error("Consumption data came back in a shape we can't read");
+        }
+
         setSettled({
           error: null,
-          holders: readHolders(responseSchema.parse(await response.json())),
+          holders: readHolders(parsed.data),
           key: requestKey,
           query,
           updatedAt: new Date(),

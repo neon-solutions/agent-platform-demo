@@ -26,6 +26,7 @@ import {
   toBillingUnit,
 } from "@/lib/consumption";
 import { hasMeteredData, NOT_METERED } from "@/lib/usage";
+import { cn } from "@/lib/utils";
 import { orpc } from "@/utils/orpc";
 
 /**
@@ -180,20 +181,26 @@ export default function UsagePage() {
     provisioned.filter((app) => app.plan === "paid").map((app) => app.neonProjectId),
   );
   const paidHolders = holders.filter((holder) => paidProjectIds.has(holder.id));
+  const hasPaidApps = paidProjectIds.size > 0;
   const cost = estimateFleetCost(
     paidHolders.map((holder) => holder.totals),
     RATE_PLAN,
     { hoursInPeriod: hoursBetween(from, to) },
   );
 
-  // Zero segments keep their row: a metric the API omitted is zero, which is
-  // a reading, and dropping it makes the breakdown claim the metric does not
-  // apply to this account.
+  /**
+   * Volume only, and no rates: these are fleet totals, and the rates are the
+   * paid plan's. Pricing free-app storage at them is the charge the cost
+   * card refuses to invent, arriving through a different card.
+   *
+   * Zero segments keep their row — a metric the API omitted is zero, which
+   * is a reading, and dropping it makes the breakdown claim the metric does
+   * not apply to this account.
+   */
   const storage = STORAGE_METRICS.map((metric) => ({
     color: METRIC_COLORS[metric],
     id: metric,
     label: METRIC_LABELS[metric],
-    rate: cost.items.find((item) => item.id === metric)?.rate,
     value: toBillingUnit(metric, totals[metric] ?? 0),
   }));
 
@@ -332,7 +339,7 @@ export default function UsagePage() {
               title="Consumption"
             />
 
-            <div className="grid gap-6 lg:grid-cols-2">
+            <div className={cn("grid gap-6", hasPaidApps && "lg:grid-cols-2")}>
               <StorageBreakdown
                 isLoading={loading}
                 period={period}
@@ -340,14 +347,18 @@ export default function UsagePage() {
                 title="Storage accrued"
                 unit="GB-mo"
               />
-              <CostEstimateCard
-                collapseZero
-                isLoading={loading}
-                lines={cost.items}
-                note={COST_NOTE}
-                period={period}
-                plan="agent"
-              />
+              {/* No paid apps, no bill. A $0.00 headline over an empty line
+                  list is a figure derived from nothing. */}
+              {hasPaidApps ? (
+                <CostEstimateCard
+                  collapseZero
+                  isLoading={loading}
+                  lines={cost.items}
+                  note={COST_NOTE}
+                  period={period}
+                  plan="agent"
+                />
+              ) : null}
             </div>
 
             <BranchUsageTable
@@ -365,7 +376,10 @@ export default function UsagePage() {
               topN={10}
             />
           </div>
-        ) : (
+        ) : error ? null : (
+          // With a failure on screen the banner is the whole answer.
+          // "Nothing metered yet" underneath it would be the same claim the
+          // banner just refused to make, four times the size.
           <EmptyState
             description={appsError ?? emptyState.description}
             title={appsError ? "Could not load your apps" : emptyState.title}
