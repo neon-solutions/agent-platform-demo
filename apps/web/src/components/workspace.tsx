@@ -7,7 +7,7 @@ import { Button } from "@vibe/ui/components/button";
 import { Skeleton } from "@vibe/ui/components/skeleton";
 import { DefaultChatTransport } from "ai";
 import { GitCommitVertical, Monitor, Settings2, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AgentChat } from "@/components/agent-chat/agent-chat";
 import {
@@ -33,6 +33,7 @@ import {
   STORAGE_METRICS,
   toAverageBytes,
 } from "@/lib/consumption";
+import { IDLE_RESTORE, restoreReducer } from "@/lib/restore-lifecycle";
 import { hasMeteredData, NOT_METERED } from "@/lib/usage";
 import { type AppStatus, StatusBadge } from "@/components/status-badge/status-badge";
 import {
@@ -174,7 +175,10 @@ export function Workspace({
   // (dot breathes, app stays visible) or a checkpoint restore (covered
   // by the loader — the dev server really is restarting).
   const [agentBusy, setAgentBusy] = useState(false);
-  const [restoring, setRestoring] = useState(false);
+  // The restore spans a server call, the preview's reload, and a bound on
+  // the wait; the order they finish in decides what the user sees, so the
+  // transitions are a reducer rather than a pair of flags set from effects.
+  const [restore, dispatchRestore] = useReducer(restoreReducer, IDLE_RESTORE);
 
   // Settings stays a drawer; everything else is a tab now.
   const [panel, setPanel] = useState<"settings" | null>(null);
@@ -186,8 +190,11 @@ export function Workspace({
   // and the panel saying so is hidden behind the tab nobody opened. It has
   // to be reported on the surface the user is looking at.
   const [checkpointError, setCheckpointError] = useState<string | null>(null);
-  const settleRestore = useCallback(() => setRestoring(false), []);
-  const [restoreCount, setRestoreCount] = useState(0);
+  const onPainted = useCallback(() => dispatchRestore({ type: "painted" }), []);
+  const onRestoreTimeout = useCallback(
+    () => dispatchRestore({ type: "timed-out" }),
+    [],
+  );
 
   return (
     <div className="flex h-svh flex-col">
@@ -249,11 +256,12 @@ export function Workspace({
                 content: (
                   <div className="relative h-full">
                     <PreviewPanel
-                      onRestoreSettled={settleRestore}
+                      awaitingPaint={restore.awaitingPaint}
+                      onPainted={onPainted}
+                      onRestoreTimeout={onRestoreTimeout}
                       proto={proto}
                       refreshSignal={turn}
-                      restoreSignal={restoreCount}
-                      restoring={restoring}
+                      restoring={restore.restoring}
                       working={agentBusy}
                     />
                   </div>
@@ -270,16 +278,17 @@ export function Workspace({
                   <CheckpointsPanel
                     onCountChange={setCheckpointCount}
                     onErrorChange={setCheckpointError}
+                    onRestoreFailed={() => dispatchRestore({ type: "failed" })}
+                    onRestoreStarted={() => dispatchRestore({ type: "started" })}
                     onRestored={(p) => {
                       setProto(p);
                       setTurn((t) => t + 1);
-                      setRestoreCount((c) => c + 1);
+                      dispatchRestore({ type: "committed" });
                       // The restore's payoff is the app reverting, and that
                       // renders in the preview. Staying here would put the
                       // demo's whole point on a hidden panel.
                       setTab("preview");
                     }}
-                    onRestoringChange={setRestoring}
                     proto={proto}
                     refreshSignal={turn}
                   />
@@ -711,23 +720,23 @@ function PreviewPanel({
   refreshSignal,
   working,
   restoring,
-  restoreSignal,
-  onRestoreSettled,
+  awaitingPaint,
+  onPainted,
+  onRestoreTimeout,
 }: {
   proto: Prototype;
   refreshSignal: number;
   working: boolean;
   restoring: boolean;
-  /** Bumps when a restore has finished and its reload is on the way. */
-  restoreSignal: number;
-  /** Called when the app has repainted after a restore. */
-  onRestoreSettled: () => void;
+  /** A restore's reload is on its way; the loader waits for it to paint. */
+  awaitingPaint: boolean;
+  onPainted: () => void;
+  onRestoreTimeout: () => void;
 }) {
   const [nonce, setNonce] = useState(0);
   const [waking, setWaking] = useState(false);
   const [liveUrl, setLiveUrl] = useState<string | null>(proto.sandboxUrl);
 
-  const [awaitingRestorePaint, setAwaitingRestorePaint] = useState(false);
   // Derived, not snapshotted: provisioning finishes AFTER mount, so the
   // polled sandboxUrl must be able to mount the frame on its own — wake()
   // then freshens the URL, it is not the gatekeeper.
@@ -743,40 +752,24 @@ function PreviewPanel({
     setNonce((n) => n + 1);
   }, [refreshSignal]);
 
-  // Its own signal rather than "a turn that happened while restoring": an
-  // agent finishing mid-restore bumps the turn too, and inferring from that
-  // would start waiting for a repaint the restore has not asked for yet.
-  const firstRestore = useRef(true);
-  useEffect(() => {
-    if (firstRestore.current) {
-      firstRestore.current = false;
-      return;
-    }
-    setAwaitingRestorePaint(true);
-  }, [restoreSignal]);
-
   /**
    * An app that never repaints must not leave the restore loader up for
    * good; lifting the scrim shows whatever the sandbox is actually serving.
    *
-   * The wait starts at the reload, not at the restore. A restore runs a git
-   * reset, an npm install, and a dev-server boot server-side before it
-   * returns — minutes, on occasion — and a bound covering that would fire
-   * mid-restore and drop the user onto the blank frame this exists to
-   * prevent.
+   * The wait runs from the reload, which is what `awaitingPaint` marks. A
+   * bound covering the server call instead would fire mid-restore — it runs
+   * a git reset, an npm install, and a dev-server boot — and drop the user
+   * onto the blank frame this exists to prevent.
    */
   useEffect(() => {
-    if (!(restoring && awaitingRestorePaint)) {
+    if (!awaitingPaint) {
       return;
     }
 
-    const timer = window.setTimeout(() => {
-      setAwaitingRestorePaint(false);
-      onRestoreSettled();
-    }, RESTORE_SETTLE_TIMEOUT_MS);
+    const timer = window.setTimeout(onRestoreTimeout, RESTORE_SETTLE_TIMEOUT_MS);
 
     return () => window.clearTimeout(timer);
-  }, [awaitingRestorePaint, restoring, onRestoreSettled]);
+  }, [awaitingPaint, onRestoreTimeout]);
 
   // Sandboxes suspend/stop on their idle timeout, so opening a preview after
   // a while can 502. Wake it (resume + restart the dev server) when ready.
@@ -806,17 +799,7 @@ function PreviewPanel({
     <PreviewFrame
       className="h-full"
       onRestart={wake}
-      // Only the load this restore is waiting on settles it. An HMR reload
-      // or a restart while the restore is still running would otherwise
-      // lift the scrim off an app that has not come back yet.
-      onFrameLoad={
-        restoring && awaitingRestorePaint
-          ? () => {
-              setAwaitingRestorePaint(false);
-              onRestoreSettled();
-            }
-          : undefined
-      }
+      onFrameLoad={awaitingPaint ? onPainted : undefined}
       reloadSignal={nonce}
       src={url}
       state={restoring || waking ? "waking" : "ready"}
@@ -844,14 +827,16 @@ function CheckpointsPanel({
   proto,
   onRestored,
   refreshSignal,
-  onRestoringChange,
+  onRestoreStarted,
+  onRestoreFailed,
   onCountChange,
   onErrorChange,
 }: {
   proto: Prototype;
   onRestored: (p: Prototype) => void;
   refreshSignal: number;
-  onRestoringChange: (restoring: boolean) => void;
+  onRestoreStarted: () => void;
+  onRestoreFailed: () => void;
   /** Reports the count so the tab label can carry it. */
   onCountChange?: (count: number) => void;
   /** Reports a failed load, which has no count to report. */
@@ -907,7 +892,7 @@ function CheckpointsPanel({
 
   async function restore(cid: string) {
     setRestoringId(cid);
-    onRestoringChange(true);
+    onRestoreStarted();
     try {
       const updated = await client.prototypes.restore({
         id: proto.id,
@@ -922,7 +907,7 @@ function CheckpointsPanel({
       onRestored(updated);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Restore failed");
-      onRestoringChange(false);
+      onRestoreFailed();
     } finally {
       setRestoringId(null);
     }
