@@ -40,10 +40,17 @@ function creds(): VercelCreds | Record<string, never> {
 const KILLED = 137;
 
 /**
+ * Runs the script in the supervised shell itself, then waits for its
+ * background jobs: once that shell exits, `timeout` stops watching, and a job
+ * still holding stdout/stderr would keep the command open past the deadline.
+ */
+const WAIT_FOR_JOBS = 'eval "$1"; status=$?; wait; exit $status';
+
+/**
  * Run a shell command in the sandbox and throw if it fails. With
  * `timeoutSeconds`, the command's whole process group gets SIGKILL at the
- * limit, so nothing it started (a server, a watcher, a child trapping SIGTERM)
- * can outlive it and hang the caller.
+ * limit, so nothing it started (a server, a background job, a child trapping
+ * SIGTERM) can outlive it and hang the caller.
  */
 export async function runInSandbox(
   sandbox: Sandbox,
@@ -56,7 +63,15 @@ export async function runInSandbox(
     opts?.timeoutSeconds
       ? {
           cmd: "timeout",
-          args: ["--signal=KILL", String(opts.timeoutSeconds), "bash", "-lc", script],
+          args: [
+            "--signal=KILL",
+            String(opts.timeoutSeconds),
+            "bash",
+            "-lc",
+            WAIT_FOR_JOBS,
+            "bash",
+            script,
+          ],
           env,
         }
       : { cmd: "bash", args: ["-lc", script], env },
