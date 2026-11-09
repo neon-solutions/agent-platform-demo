@@ -40,17 +40,24 @@ function creds(): VercelCreds | Record<string, never> {
 const KILLED = 137;
 
 /**
- * Runs the script in the supervised shell itself, then waits for its
- * background jobs: once that shell exits, `timeout` stops watching, and a job
- * still holding stdout/stderr would keep the command open past the deadline.
+ * `timeout` runs in its own process group with output in temp files. The SDK
+ * only returns once every holder of the command's stdout/stderr has exited, so
+ * a background job left on those pipes would keep the call open no matter when
+ * `timeout` fires. After `timeout` returns, whatever is left in its group is
+ * killed and the captured output is replayed.
  */
-const WAIT_FOR_JOBS = 'eval "$1"; status=$?; wait; exit $status';
+const BOUNDED = `out=$(mktemp); err=$(mktemp)
+timeout --signal=KILL "$1" bash -lc "$2" >"$out" 2>"$err" </dev/null & pid=$!
+{ wait "$pid"; } 2>/dev/null; status=$?
+kill -KILL -- "-$pid" 2>/dev/null
+cat "$out"; cat "$err" >&2; rm -f "$out" "$err"
+exit "$status"`;
 
 /**
  * Run a shell command in the sandbox and throw if it fails. With
- * `timeoutSeconds`, the command's whole process group gets SIGKILL at the
- * limit, so nothing it started (a server, a background job, a child trapping
- * SIGTERM) can outlive it and hang the caller.
+ * `timeoutSeconds`, the command gets SIGKILL at the limit, and anything it
+ * left running (a server, a background job, a child trapping SIGTERM) is
+ * killed when it ends, so nothing it starts can hang the caller.
  */
 export async function runInSandbox(
   sandbox: Sandbox,
@@ -61,19 +68,7 @@ export async function runInSandbox(
   const startedAt = Date.now();
   const cmd = await sandbox.runCommand(
     opts?.timeoutSeconds
-      ? {
-          cmd: "timeout",
-          args: [
-            "--signal=KILL",
-            String(opts.timeoutSeconds),
-            "bash",
-            "-lc",
-            WAIT_FOR_JOBS,
-            "bash",
-            script,
-          ],
-          env,
-        }
+      ? { cmd: "bash", args: ["-c", BOUNDED, "bash", String(opts.timeoutSeconds), script], env }
       : { cmd: "bash", args: ["-lc", script], env },
   );
   const [out, err] = await Promise.all([cmd.stdout(), cmd.stderr()]);
