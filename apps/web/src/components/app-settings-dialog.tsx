@@ -24,8 +24,12 @@ export function AppSettingsDialog({
 }) {
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
-      <DialogContent className="max-w-lg gap-5 overflow-hidden p-5 [&>section]:min-w-0" keepMounted>
-        <DialogHeader className="gap-1">
+      <DialogContent
+        className="max-w-lg gap-5 overflow-x-hidden p-5 [&>section]:min-w-0"
+        keepMounted
+        showCloseButton
+      >
+        <DialogHeader className="gap-1 pr-8">
           <DialogTitle className="text-base">App settings</DialogTitle>
           <DialogDescription>Name, database access, and teardown.</DialogDescription>
         </DialogHeader>

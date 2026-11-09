@@ -1,6 +1,7 @@
 "use client";
 
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
+import { XIcon } from "lucide-react";
 import type { ComponentProps } from "react";
 
 import { cn } from "@vibe/ui/lib/utils";
@@ -38,23 +39,35 @@ function DialogContent({
   children,
   className,
   keepMounted = false,
+  showCloseButton = false,
   ...props
 }: DialogPrimitive.Popup.Props & {
   /** Keep children mounted while closed (portaled siblings survive). */
   keepMounted?: boolean;
+  /** A corner close button, for dialogs without a cancel action of their own. */
+  showCloseButton?: boolean;
 }) {
   return (
     <DialogPortal keepMounted={keepMounted}>
       <DialogOverlay />
       <DialogPrimitive.Popup
         className={cn(
-          "fade-in-0 slide-in-from-bottom-2 fixed top-1/2 left-1/2 z-50 grid w-full max-w-md translate-x-[-50%] translate-y-[-50%] animate-in gap-4 rounded-lg border border-border/60 bg-card p-6 duration-300 motion-reduce:animate-none",
+          "fade-in-0 slide-in-from-bottom-2 fixed top-1/2 left-1/2 z-50 grid max-h-[calc(100svh-2rem)] w-[calc(100%-2rem)] max-w-md translate-x-[-50%] translate-y-[-50%] animate-in gap-4 overflow-y-auto rounded-lg border border-border/60 bg-card p-6 duration-300 motion-reduce:animate-none",
           className,
         )}
         data-slot="dialog-content"
         {...props}
       >
         {children}
+        {showCloseButton ? (
+          <DialogPrimitive.Close
+            aria-label="Close"
+            className="absolute top-3 right-3 grid size-7 place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+            data-slot="dialog-close"
+          >
+            <XIcon aria-hidden className="size-4" />
+          </DialogPrimitive.Close>
+        ) : null}
       </DialogPrimitive.Popup>
     </DialogPortal>
   );

@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { AuthForm, type AuthFormValues, type AuthMode } from "@/components/auth-form/auth-form";
+import { BrandMark } from "@/components/brand-mark";
 import { authClient } from "@/lib/auth-client";
 
 export function LoginClient({ next }: { next?: string }) {
@@ -33,21 +35,31 @@ export function LoginClient({ next }: { next?: string }) {
   }
 
   return (
-    <main className="flex min-h-svh items-center justify-center p-6">
-      <AuthForm
-        className="w-full max-w-sm"
-        description={
-          mode === "sign-up"
-            ? "Start vibe-coding full-stack apps on Neon."
-            : "Sign in to your vibe workspace."
-        }
-        error={error}
-        isBusy={busy}
-        mode={mode}
-        onModeChange={setMode}
-        onSubmit={onSubmit}
-        variant="bare"
-      />
-    </main>
+    <div className="flex min-h-svh flex-col">
+      <header className="flex h-14 shrink-0 items-center px-6">
+        <Link
+          aria-label="Vibe home"
+          className="rounded-sm transition-colors hover:text-primary focus-visible:outline-2 focus-visible:outline-ring"
+          href="/"
+        >
+          <BrandMark />
+        </Link>
+      </header>
+      <main className="flex flex-1 items-center justify-center px-6 pb-14">
+        <AuthForm
+          className="w-full max-w-sm"
+          description={
+            mode === "sign-up"
+              ? "Build full-stack apps on Neon by describing them."
+              : "Sign in to pick up where your apps left off."
+          }
+          error={error}
+          isBusy={busy}
+          mode={mode}
+          onModeChange={setMode}
+          onSubmit={onSubmit}
+        />
+      </main>
+    </div>
   );
 }

@@ -1,6 +1,8 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { buttonVariants } from "@vibe/ui/components/button";
+import Link from "next/link";
 import { useMemo, useState } from "react";
 
 import { BranchUsageTable } from "@/components/branch-usage-table/branch-usage-table";
@@ -262,15 +264,13 @@ export default function UsagePage() {
 
   return (
     <div className="flex min-h-svh flex-col">
-      <TopNav>
-        <span className="text-muted-foreground text-sm">/ Usage</span>
-      </TopNav>
-      <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-10">
+      <TopNav />
+      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-10 sm:px-6">
         <header className="mb-6">
           <h1 className="font-semibold text-2xl tracking-tight">Usage</h1>
           <p className="mt-1 text-muted-foreground text-sm">
             Metered straight from Neon, across every app on your account.{" "}
-            <span className="text-muted-foreground/70">
+            <span className="text-muted-foreground">
               Last {Math.round(windowHours / HOURS_PER_DAY)} days · {period}
             </span>
           </p>
@@ -381,6 +381,13 @@ export default function UsagePage() {
           // "Nothing metered yet" underneath it would be the same claim the
           // banner just refused to make, four times the size.
           <EmptyState
+            action={
+              hasApps || appsError ? null : (
+                <Link className={buttonVariants({ size: "sm" })} href="/">
+                  Build an app
+                </Link>
+              )
+            }
             description={appsError ?? emptyState.description}
             title={appsError ? "Could not load your apps" : emptyState.title}
           />

@@ -6,8 +6,16 @@ import type { Checkpoint, Prototype } from "@vibe/db/schema";
 import { Button } from "@vibe/ui/components/button";
 import { Skeleton } from "@vibe/ui/components/skeleton";
 import { DefaultChatTransport } from "ai";
-import { GitCommitVertical, Monitor, Settings2, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { GitCommitVertical, MessageSquare, Monitor, Settings2, X } from "lucide-react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 import { toast } from "sonner";
 import { AgentChat } from "@/components/agent-chat/agent-chat";
 import {
@@ -17,6 +25,8 @@ import {
 import { motion, useReducedMotion } from "motion/react";
 import Link from "next/link";
 import { AppSettingsSections } from "@/components/app-settings";
+import { AppSettingsDialog } from "@/components/app-settings-dialog";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { EmptyState } from "@/components/empty-state/empty-state";
 import { ErrorDialog } from "@/components/error-dialog";
 
@@ -131,28 +141,34 @@ export function Workspace({
   initialPrompt?: string;
 }) {
   const [proto, setProto] = useState<Prototype>(initial);
-  const provisioningStarted = useRef(false);
+  // Bumped by "Try again" after a failed provisioning run; each attempt
+  // starts its own provision call and poll.
+  const [attempt, setAttempt] = useState(0);
+  const startedAttempt = useRef<number | null>(null);
 
   // Kick off provisioning + poll until the sandbox is ready.
   //
-  // Deps are the id alone, deliberately: each poll advances `proto.status`
-  // (provisioning → booting → ready), so depending on the status would tear
-  // down the loop on its own first result — the ref guard then bails on the
-  // re-run and the app never learns it is ready.
+  // Deps exclude the live `proto.status`, deliberately: each poll advances
+  // it (provisioning → booting → ready), so depending on it would tear down
+  // the loop on its own first result.
+  //
+  // The provision call is sent once per attempt; the poll restarts on every
+  // run. An effect re-run (Strict Mode, Fast Refresh) cancels the previous
+  // loop, and a guard that skipped the restart left the page on
+  // "provisioning" after the app was ready.
   useEffect(() => {
-    if (initial.status === "ready" || initial.status === "error") {
+    if (attempt === 0 && (initial.status === "ready" || initial.status === "error")) {
       return;
     }
-    if (provisioningStarted.current) {
-      return;
-    }
-    provisioningStarted.current = true;
-
-    let cancelled = false;
-    (async () => {
+    if (startedAttempt.current !== attempt) {
+      startedAttempt.current = attempt;
       client.prototypes.provision({ id: initial.id }).catch(() => {
         // Poll below reports the error state.
       });
+    }
+
+    let cancelled = false;
+    (async () => {
       while (!cancelled) {
         await new Promise((r) => setTimeout(r, POLL_MS));
         const latest = await client.prototypes.get({ id: initial.id }).catch(() => null);
@@ -168,7 +184,17 @@ export function Workspace({
     return () => {
       cancelled = true;
     };
-  }, [initial.id, initial.status]);
+  }, [initial.id, initial.status, attempt]);
+
+  // The server set the title from the name at load; a rename happens here.
+  useEffect(() => {
+    document.title = `${proto.name} · Vibe`;
+  }, [proto.name]);
+
+  const retryProvisioning = useCallback(() => {
+    setProto((p) => ({ ...p, status: "provisioning", statusDetail: "Retrying…" }));
+    setAttempt((a) => a + 1);
+  }, []);
 
   const [turn, setTurn] = useState(0);
   // Live activity, reflected in the preview chrome: the agent editing
@@ -180,8 +206,11 @@ export function Workspace({
   // transitions are a reducer rather than a pair of flags set from effects.
   const [restore, dispatchRestore] = useReducer(restoreReducer, IDLE_RESTORE);
 
-  // Settings stays a drawer; everything else is a tab now.
+  // Settings stays a drawer; everything else is a tab now. Below the
+  // two-column breakpoint there is no room for a drawer, so it is a dialog.
   const [panel, setPanel] = useState<"settings" | null>(null);
+  const wide = useMediaQuery("(min-width: 1024px)");
+  const [mobilePane, setMobilePane] = useState<Pane>("chat");
   const [tab, setTab] = useState("preview");
   // Lifted so the tab label can carry the count without the panel
   // rendering just to be counted.
@@ -191,18 +220,21 @@ export function Workspace({
   // to be reported on the surface the user is looking at.
   const [checkpointError, setCheckpointError] = useState<string | null>(null);
   const onPainted = useCallback(() => dispatchRestore({ type: "painted" }), []);
-  const onRestoreTimeout = useCallback(
-    () => dispatchRestore({ type: "timed-out" }),
-    [],
-  );
+  const onRestoreTimeout = useCallback(() => dispatchRestore({ type: "timed-out" }), []);
 
   return (
     <div className="flex h-svh flex-col">
       <TopBar proto={proto} />
+      <PaneSwitcher agentBusy={agentBusy} onChange={setMobilePane} value={mobilePane} />
       {/* Flex row so the drawer's width animation resizes the preview
           fluidly — the running app reflows live instead of being covered. */}
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <div className="flex min-h-0 shrink-0 flex-col lg:w-[400px]">
+        <div
+          className={cn(
+            "flex min-h-0 min-w-0 flex-1 flex-col lg:w-[400px] lg:flex-none",
+            mobilePane !== "chat" && "max-lg:hidden",
+          )}
+        >
           <ChatPanel
             initialPrompt={initialPrompt}
             onBusyChange={setAgentBusy}
@@ -213,7 +245,12 @@ export function Workspace({
         {/* Checkpoints are a peer of the running app, not a drawer behind
             an icon: versioning IS the story this demo tells, so it gets a
             tab of its own with its count on the label. */}
-        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col px-4 pb-4">
+        <div
+          className={cn(
+            "relative flex min-h-0 min-w-0 flex-1 flex-col px-4 pb-4",
+            mobilePane !== "app" && "max-lg:hidden",
+          )}
+        >
           <WorkspaceTabs
             // Settings is scoped to the app, not to a pane: renaming or
             // tearing down is available whichever tab is open.
@@ -257,6 +294,7 @@ export function Workspace({
                   <div className="relative h-full">
                     <PreviewPanel
                       awaitingPaint={restore.awaitingPaint}
+                      onRetryProvisioning={retryProvisioning}
                       onPainted={onPainted}
                       onRestoreTimeout={onRestoreTimeout}
                       proto={proto}
@@ -312,13 +350,76 @@ export function Workspace({
             value={tab}
           />
         </div>
-        <SettingsDrawer
-          onClose={() => setPanel(null)}
-          onRenamed={setProto}
-          open={panel === "settings"}
-          proto={proto}
-        />
+        {wide ? (
+          <SettingsDrawer
+            onClose={() => setPanel(null)}
+            onRenamed={setProto}
+            open={panel === "settings"}
+            proto={proto}
+          />
+        ) : (
+          <AppSettingsDialog
+            onDeleted={() => window.location.assign("/app")}
+            onOpenChange={(open) => setPanel(open ? "settings" : null)}
+            onRenamed={setProto}
+            open={panel === "settings"}
+            proto={proto}
+          />
+        )}
       </div>
+    </div>
+  );
+}
+
+type Pane = "chat" | "app";
+
+/**
+ * Below the two-column breakpoint there is room for one pane at a time; the
+ * switcher picks it. The hidden pane stays mounted so the running app never
+ * reloads, and the App option pulses while the agent is editing it.
+ */
+function PaneSwitcher({
+  value,
+  onChange,
+  agentBusy,
+}: {
+  value: Pane;
+  onChange: (pane: Pane) => void;
+  agentBusy: boolean;
+}) {
+  const options: { id: Pane; label: string; icon: ReactNode }[] = [
+    { id: "chat", label: "Chat", icon: <MessageSquare className="size-3.5" /> },
+    { id: "app", label: "App", icon: <Monitor className="size-3.5" /> },
+  ];
+  return (
+    <div
+      aria-label="Show"
+      className="grid shrink-0 grid-cols-2 gap-1 border-border border-b p-1.5 lg:hidden"
+      role="group"
+    >
+      {options.map((option) => (
+        <button
+          aria-pressed={value === option.id}
+          className={cn(
+            "flex h-8 items-center justify-center gap-1.5 rounded-sm text-xs transition-colors focus-visible:outline-2 focus-visible:outline-ring",
+            value === option.id
+              ? "bg-muted text-foreground"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+          key={option.id}
+          onClick={() => onChange(option.id)}
+          type="button"
+        >
+          {option.icon}
+          {option.label}
+          {option.id === "app" && agentBusy ? (
+            <>
+              <span aria-hidden className="neon-status-breathe size-1.5 bg-primary text-primary" />
+              <span className="sr-only">, agent is editing</span>
+            </>
+          ) : null}
+        </button>
+      ))}
     </div>
   );
 }
@@ -340,8 +441,8 @@ function SettingsDrawer({
   return (
     <motion.aside
       animate={{ width: open ? DRAWER.width : 0 }}
-      aria-hidden={!open}
       aria-label="App settings"
+      inert={!open}
       className="relative min-h-0 shrink-0 overflow-hidden"
       data-slot="settings-drawer"
       initial={false}
@@ -367,11 +468,13 @@ function SettingsDrawer({
 function TopBar({ proto }: { proto: Prototype }) {
   return (
     <TopNav>
-      <span className="text-muted-foreground">/</span>
-      <span className="max-w-[220px] truncate font-medium text-sm sm:max-w-[360px]">
-        {proto.name}
+      <span aria-hidden className="text-muted-foreground">
+        /
       </span>
-      <StatusBadge status={proto.status as AppStatus} />
+      <h1 className="min-w-0 truncate font-medium text-sm" title={proto.name}>
+        {proto.name}
+      </h1>
+      <StatusBadge className="shrink-0" status={proto.status as AppStatus} />
     </TopNav>
   );
 }
@@ -479,7 +582,7 @@ function ChatPanel({
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
   }, []);
-  const { messages, sendMessage, status, setMessages, regenerate } = useChat({
+  const { messages, sendMessage, status, setMessages, regenerate, stop } = useChat({
     onError: (e) => setAgentError(e.message || "Agent error"),
     transport: new DefaultChatTransport({
       api: `${AGENT_URL}/chat`,
@@ -500,6 +603,13 @@ function ChatPanel({
 
   const busy = status === "submitted" || status === "streaming";
   busyRef.current = busy;
+  // A stopped turn and a finished one both land on "ready"; only this tells
+  // the user the agent didn't get to the end of what they asked.
+  const [stopped, setStopped] = useState(false);
+  const send = (text: string) => {
+    setStopped(false);
+    sendMessage({ metadata: { model, modelName }, text });
+  };
   const ready = proto.status === "ready";
 
   // Reload-proof chat: hydrate prior turns from the agent's memory before
@@ -583,35 +693,45 @@ function ChatPanel({
             <div
               className="mx-3 mb-2 flex items-center gap-2 border border-destructive/40 bg-destructive/5 px-2.5 py-1.5"
               data-slot="runtime-error-banner"
+              role="alert"
             >
               <span className="min-w-0 flex-1 truncate font-mono text-destructive text-xs">
                 {runtimeError.message}
               </span>
-              <button
-                className="shrink-0 border border-border/60 px-2 py-0.5 text-foreground text-xs transition-colors hover:border-border"
+              <Button
+                className="shrink-0"
                 onClick={() => {
-                  sendMessage({
-                    metadata: { model, modelName },
-                    text: `The running app is showing a runtime error. Fix it.\n\nError: ${runtimeError.message}\n\n${runtimeError.detail}`,
-                  });
+                  send(
+                    `The running app is showing a runtime error. Fix it.\n\nError: ${runtimeError.message}\n\n${runtimeError.detail}`,
+                  );
                   setRuntimeError(null);
                 }}
-                type="button"
+                size="xs"
+                variant="outline"
               >
                 Ask agent to fix
-              </button>
-              <button
+              </Button>
+              <Button
                 aria-label="Dismiss error"
-                className="shrink-0 px-1 text-muted-foreground text-xs transition-colors hover:text-foreground"
+                className="shrink-0 text-muted-foreground"
                 onClick={() => setRuntimeError(null)}
-                type="button"
+                size="icon-xs"
+                variant="ghost"
               >
-                ×
-              </button>
+                <X />
+              </Button>
             </div>
+          ) : stopped ? (
+            <p
+              className="mx-3 mb-2 border border-border/60 px-2.5 py-1.5 text-muted-foreground text-xs"
+              data-slot="stopped-notice"
+              role="status"
+            >
+              You stopped the agent. Edits it made before stopping are kept.
+            </p>
           ) : null
         }
-        className="min-h-0 flex-1 border-border border-r"
+        className="min-h-0 flex-1 border-border lg:border-r"
         controls={
           models.length > 0 ? (
             <ThinkingModelSelect
@@ -641,13 +761,12 @@ function ChatPanel({
           )
         }
         messages={messages}
-        onSend={(text) =>
-          sendMessage({
-            metadata: { model, modelName },
-            text,
-          })
-        }
-        placeholder={ready ? "Describe a change…" : "Waiting for sandbox to boot…"}
+        onSend={send}
+        onStop={() => {
+          setStopped(true);
+          void stop();
+        }}
+        placeholder={ready ? "Describe a change…" : "Waiting for the sandbox to boot…"}
         status={status}
       />
     </>
@@ -660,14 +779,18 @@ function ChatPanel({
  * as statusDetail advances; the active one breathes.
  * ─────────────────────────────────────────────────── */
 const PROVISION_STEPS = [
-  { label: "Creating an isolated Neon Postgres project", match: "Postgres" },
-  { label: "Booting the Vercel Sandbox", match: "Sandbox" },
+  { label: "Creating an isolated Neon Postgres project", match: ["Postgres"] },
+  { label: "Booting the Vercel Sandbox", match: ["Booting"] },
+  { label: "Installing the starter app", match: ["Seeding", "Installing"] },
+  { label: "Starting the dev server", match: ["dev server"] },
 ] as const;
 
 export function ProvisioningFeed({ proto }: { proto: Prototype }) {
   const detail = proto.statusDetail ?? "";
   const failed = proto.status === "error";
-  const activeIndex = PROVISION_STEPS.findIndex((s) => detail.includes(s.match));
+  const activeIndex = PROVISION_STEPS.findIndex((step) =>
+    step.match.some((fragment) => detail.includes(fragment)),
+  );
   const current = activeIndex === -1 ? 0 : activeIndex;
 
   return (
@@ -692,7 +815,7 @@ export function ProvisioningFeed({ proto }: { proto: Prototype }) {
                 active && "text-foreground",
                 !(done || active) && "text-muted-foreground/50",
               )}
-              key={step.match}
+              key={step.label}
             >
               <span
                 aria-hidden
@@ -723,9 +846,11 @@ function PreviewPanel({
   awaitingPaint,
   onPainted,
   onRestoreTimeout,
+  onRetryProvisioning,
 }: {
   proto: Prototype;
   refreshSignal: number;
+  onRetryProvisioning: () => void;
   working: boolean;
   restoring: boolean;
   /** A restore's reload is on its way; the loader waits for it to paint. */
@@ -813,6 +938,7 @@ function PreviewPanel({
           ? undefined
           : "Creating a Neon Postgres project and booting a Vercel Sandbox.")
       }
+      onRetry={proto.status === "error" ? onRetryProvisioning : undefined}
       size="lg"
       state={proto.status === "error" ? "error" : "provisioning"}
       variant="bare"
@@ -1061,9 +1187,7 @@ function UsagePanel({ proto }: { proto: Prototype }) {
         <p className="mb-3 flex flex-wrap items-baseline gap-x-2 text-xs" role="alert">
           <span className="text-destructive">{error}</span>
           {metered ? (
-            <span className="text-muted-foreground">
-              Showing the last figures that loaded.
-            </span>
+            <span className="text-muted-foreground">Showing the last figures that loaded.</span>
           ) : null}
           <button
             className="font-medium text-foreground underline underline-offset-4 hover:text-primary"

@@ -1,10 +1,12 @@
 "use client";
 
+import { Button, buttonVariants } from "@vibe/ui/components/button";
 import { motion, useReducedMotion } from "motion/react";
 import Link from "next/link";
 import { type ReactNode, useRef, useState } from "react";
 import { AppCreator } from "@/components/app-creator/app-creator";
 import { AuthDialog } from "@/components/auth-dialog";
+import { BrandMark } from "@/components/brand-mark";
 import { HalftoneBloom } from "@/components/halftone-bloom/halftone-bloom";
 import { CreditPill, CreditPillSegment } from "@/components/credit-pill";
 import { ExamplePrompts } from "@/components/example-prompts";
@@ -112,30 +114,25 @@ export default function HomePage() {
   );
 
   const header = (
-    <header className="relative z-10 flex h-14 items-center justify-between px-6">
-      <span className="flex items-center gap-2 font-semibold text-sm">
-        <span className="text-primary text-xs">◆</span> Vibe
-      </span>
-      <nav>
+    <header className="relative z-10 flex h-14 items-center justify-between px-4 sm:px-6">
+      <BrandMark />
+      <nav aria-label="Account">
         {session ? (
-          <Link
-            className="px-3 py-1.5 text-muted-foreground text-sm transition-colors hover:text-foreground"
-            href="/app"
-          >
+          <Link className={buttonVariants({ size: "sm", variant: "ghost" })} href="/app">
             Your apps
           </Link>
         ) : (
-          <button
-            className="px-3 py-1.5 text-muted-foreground text-sm transition-colors hover:text-foreground"
+          <Button
             onClick={() => {
               pending.current = null;
               setAuthMode("sign-in");
               setAuthOpen(true);
             }}
-            type="button"
+            size="sm"
+            variant="ghost"
           >
             Sign in
-          </button>
+          </Button>
         )}
       </nav>
     </header>

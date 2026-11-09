@@ -59,7 +59,7 @@ export const ToolCallChip = ({
       />
       <span className="shrink-0">{name}</span>
       {detail ? (
-        <span className="min-w-0 truncate text-muted-foreground/50" title={detail}>
+        <span className="min-w-0 truncate text-muted-foreground/80" title={detail}>
           {detail}
         </span>
       ) : null}

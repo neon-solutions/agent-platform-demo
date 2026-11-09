@@ -1,10 +1,10 @@
 "use client";
 
 import type { ChatStatus, UIMessage } from "ai";
-import { ChevronRightIcon, Loader2Icon, SendIcon } from "lucide-react";
+import { ChevronRightIcon, SendIcon, SquareIcon } from "lucide-react";
 import { domAnimation, LazyMotion, m, useReducedMotion } from "motion/react";
 import type { ComponentProps, FormEvent, KeyboardEvent, ReactNode } from "react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Streamdown } from "streamdown";
 
 import { EmptyState } from "@/components/empty-state/empty-state";
@@ -400,8 +400,34 @@ const autoGrow = (event: FormEvent<HTMLTextAreaElement>) => {
   textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
 };
 
+/** "0:42" for the turn in flight, ticking once a second while busy. */
+const useElapsed = (running: boolean): string | null => {
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [now, setNow] = useState(0);
+
+  useEffect(() => {
+    if (!running) {
+      setStartedAt(null);
+      return;
+    }
+    const start = Date.now();
+    setStartedAt(start);
+    setNow(start);
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [running]);
+
+  if (startedAt === null) {
+    return null;
+  }
+  const seconds = Math.max(0, Math.floor((now - startedAt) / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+};
+
 export interface ChatInputProps {
   onSend: (text: string) => void;
+  /** Shown as the action while busy: cancels the turn in flight. */
+  onStop?: () => void;
   disabled?: boolean;
   busy?: boolean;
   placeholder?: string;
@@ -417,9 +443,11 @@ export const ChatInput = ({
   controls,
   disabled = false,
   onSend,
+  onStop,
   placeholder = "Describe a change…",
 }: ChatInputProps) => {
   const [text, setText] = useState("");
+  const elapsed = useElapsed(busy);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const submit = useCallback(() => {
@@ -470,15 +498,31 @@ export const ChatInput = ({
       />
       <div className="flex items-end justify-between gap-2 px-2.5 pb-2.5">
         <div className="flex min-w-0 items-center gap-2">{controls}</div>
-        <Button
-          aria-label={busy ? "Waiting for the agent" : "Send message"}
-          className="shrink-0"
-          disabled={disabled || busy || text.trim().length === 0}
-          onClick={submit}
-          size="icon-sm"
-        >
-          {busy ? <Loader2Icon className="animate-spin" /> : <SendIcon />}
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          {elapsed ? (
+            <span
+              className="font-mono text-[11px] text-muted-foreground tabular-nums"
+              data-slot="chat-input-elapsed"
+              title="Time this turn has been running"
+            >
+              {elapsed}
+            </span>
+          ) : null}
+          {busy && onStop ? (
+            <Button aria-label="Stop the agent" onClick={onStop} size="icon-sm" variant="outline">
+              <SquareIcon className="fill-current" />
+            </Button>
+          ) : (
+            <Button
+              aria-label="Send message"
+              disabled={disabled || busy || text.trim().length === 0}
+              onClick={submit}
+              size="icon-sm"
+            >
+              <SendIcon />
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -534,6 +578,8 @@ export type AgentChatProps = Omit<ComponentProps<"div">, "children"> & {
   activeControls?: AgentChatTurnMetadata;
   /** Shown in the error state; called to resend the last message. */
   onRetry?: () => void;
+  /** Cancels the turn in flight; the composer offers it while busy. */
+  onStop?: () => void;
   /** Slot between the timeline and the composer, e.g. a runtime-error notice. */
   banner?: ReactNode;
 };
@@ -548,6 +594,7 @@ export const AgentChat = ({
   messages,
   onRetry,
   onSend,
+  onStop,
   placeholder,
   status,
   ...props
@@ -648,6 +695,7 @@ export const AgentChat = ({
           controls={controls}
           disabled={disabled}
           onSend={onSend}
+          onStop={onStop}
           placeholder={placeholder}
         />
       </div>

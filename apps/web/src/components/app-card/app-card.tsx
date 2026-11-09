@@ -139,7 +139,7 @@ export const AppCard = ({
       <StatusBadge status={status} />
       {plan ? <PlanBadge plan={plan} /> : null}
       {updatedAt ? (
-        <span className="ml-auto whitespace-nowrap font-mono text-[10px] text-muted-foreground/70 tabular-nums">
+        <span className="ml-auto whitespace-nowrap font-mono text-[10px] text-muted-foreground tabular-nums">
           {updatedAt}
         </span>
       ) : null}
