@@ -42,8 +42,8 @@ export function NewAppDialog({
 
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
-      <DialogContent className="max-w-xl gap-5 p-5">
-        <DialogHeader className="gap-1">
+      <DialogContent className="max-w-xl gap-5 p-5" showCloseButton>
+        <DialogHeader className="gap-1 pr-8">
           <DialogTitle className="text-base">New app</DialogTitle>
           <DialogDescription>
             Describe it; the agent builds it on its own Postgres database.

@@ -115,6 +115,9 @@ app.post("/chat", async (c) => {
       messages: (body.messages ?? []) as never,
       memory: { thread: prototypeId, resource: userId },
       maxSteps: 25,
+      // The composer's Stop closes this request; without the signal the
+      // loop kept calling tools after the user stopped it.
+      abortSignal: c.req.raw.signal,
       providerOptions: {
         // The gateway serves the Responses API statelessly — it keeps no
         // stored items. Left to its default the AI SDK assumes OpenAI-style

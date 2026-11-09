@@ -2,12 +2,14 @@
 
 import { Button } from "@vibe/ui/components/button";
 import { Input } from "@vibe/ui/components/input";
-import { useEffect, useState } from "react";
+import { Skeleton } from "@vibe/ui/components/skeleton";
+import { type ReactNode, useEffect, useId, useState } from "react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/confirm-dialog/confirm-dialog";
 import { TeardownOverlay } from "@/components/teardown-overlay";
 import { TopNav } from "@/components/top-nav";
 import { relativeTime } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { authClient } from "@/lib/auth-client";
 import { client } from "@/utils/orpc";
 
@@ -33,17 +35,62 @@ export default function AccountPage() {
 
   return (
     <div className="flex min-h-svh flex-col">
-      <TopNav>
-        <span className="text-muted-foreground text-sm">/ Account</span>
-      </TopNav>
-      <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-10">
-        <h1 className="font-semibold text-2xl tracking-tight">Account</h1>
-        <ProfileSection email={session?.user.email ?? ""} initialName={session?.user.name ?? ""} />
-        <PasswordSection />
-        <SessionsSection currentToken={session?.session.token} />
-        <DangerSection />
+      <TopNav />
+      <main className="mx-auto w-full max-w-2xl flex-1 px-4 py-10 sm:px-6">
+        <header className="mb-8">
+          <h1 className="font-semibold text-2xl tracking-tight">Account</h1>
+          <p className="mt-1 text-muted-foreground text-sm">
+            Your profile, password, signed-in devices, and account deletion.
+          </p>
+        </header>
+        <div className="flex flex-col gap-6">
+          <ProfileSection
+            email={session?.user.email ?? ""}
+            initialName={session?.user.name ?? ""}
+          />
+          <PasswordSection />
+          <SessionsSection currentToken={session?.session.token} />
+          <DangerSection />
+        </div>
       </main>
     </div>
+  );
+}
+
+function Section({
+  title,
+  description,
+  tone = "default",
+  children,
+}: {
+  title: string;
+  description?: string;
+  tone?: "default" | "danger";
+  children: ReactNode;
+}) {
+  const id = useId();
+  return (
+    <section
+      aria-labelledby={id}
+      className={cn(
+        "rounded-lg border bg-card p-5",
+        tone === "danger" ? "border-destructive/30" : "border-border/60",
+      )}
+    >
+      <h2 className={cn("font-medium text-sm", tone === "danger" && "text-destructive")} id={id}>
+        {title}
+      </h2>
+      {description ? <p className="mt-1 text-muted-foreground text-xs">{description}</p> : null}
+      <div className="mt-4">{children}</div>
+    </section>
+  );
+}
+
+function FieldLabel({ htmlFor, children }: { htmlFor: string; children: ReactNode }) {
+  return (
+    <label className="mb-1.5 block text-muted-foreground text-xs" htmlFor={htmlFor}>
+      {children}
+    </label>
   );
 }
 
@@ -69,13 +116,10 @@ function ProfileSection({ initialName, email }: { initialName: string; email: st
   }
 
   return (
-    <section className="mt-8">
-      <h2 className="mb-3 font-medium text-sm">Profile</h2>
-      <div className="space-y-3">
+    <Section description="How you appear in Vibe." title="Profile">
+      <div className="space-y-4">
         <div>
-          <label className="mb-1.5 block text-muted-foreground text-xs" htmlFor="account-name">
-            Name
-          </label>
+          <FieldLabel htmlFor="account-name">Name</FieldLabel>
           <div className="flex gap-2">
             <Input
               id="account-name"
@@ -90,10 +134,10 @@ function ProfileSection({ initialName, email }: { initialName: string; email: st
         </div>
         <div>
           <p className="mb-1.5 text-muted-foreground text-xs">Email</p>
-          <p className="text-sm">{email}</p>
+          {email ? <p className="truncate text-sm">{email}</p> : <Skeleton className="h-5 w-56" />}
         </div>
       </div>
-    </section>
+    </Section>
   );
 }
 
@@ -124,28 +168,45 @@ function PasswordSection() {
   }
 
   return (
-    <section className="mt-8 border-border border-t pt-6">
-      <h2 className="mb-3 font-medium text-sm">Password</h2>
-      <div className="flex flex-col gap-2 sm:flex-row">
-        <Input
-          autoComplete="current-password"
-          onChange={(e) => setCurrent(e.target.value)}
-          placeholder="Current password"
-          type="password"
-          value={current}
-        />
-        <Input
-          autoComplete="new-password"
-          onChange={(e) => setNext(e.target.value)}
-          placeholder="New password (8+ characters)"
-          type="password"
-          value={next}
-        />
-        <Button disabled={!valid || busy} onClick={change} size="sm">
-          {busy ? "Changing…" : "Change"}
-        </Button>
-      </div>
-    </section>
+    <Section description="Changing it signs out every other device." title="Password">
+      <form
+        className="grid gap-3 sm:grid-cols-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          change();
+        }}
+      >
+        <div>
+          <FieldLabel htmlFor="account-current-password">Current password</FieldLabel>
+          <Input
+            autoComplete="current-password"
+            id="account-current-password"
+            onChange={(e) => setCurrent(e.target.value)}
+            type="password"
+            value={current}
+          />
+        </div>
+        <div>
+          <FieldLabel htmlFor="account-new-password">New password</FieldLabel>
+          <Input
+            aria-describedby="account-new-password-hint"
+            autoComplete="new-password"
+            id="account-new-password"
+            onChange={(e) => setNext(e.target.value)}
+            type="password"
+            value={next}
+          />
+          <p className="mt-1.5 text-muted-foreground text-xs" id="account-new-password-hint">
+            At least 8 characters.
+          </p>
+        </div>
+        <div className="sm:col-span-2">
+          <Button disabled={!valid || busy} size="sm" type="submit">
+            {busy ? "Changing…" : "Change password"}
+          </Button>
+        </div>
+      </form>
+    </Section>
   );
 }
 
@@ -177,21 +238,28 @@ function SessionsSection({ currentToken }: { currentToken?: string }) {
   }
 
   return (
-    <section className="mt-8 border-border border-t pt-6">
-      <h2 className="mb-1 font-medium text-sm">Sessions</h2>
-      <p className="mb-3 text-muted-foreground text-xs">Everywhere this account is signed in.</p>
-      {loaded && sessions.length === 0 ? (
+    <Section description="Everywhere this account is signed in." title="Sessions">
+      {!loaded ? (
+        <div aria-busy="true" aria-label="Loading sessions" className="space-y-2">
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-4/5" />
+        </div>
+      ) : sessions.length === 0 ? (
         <p className="text-muted-foreground text-xs">No active sessions.</p>
       ) : (
-        <ul className="divide-y divide-border/60 border-border/60 border-y">
+        <ul className="divide-y divide-border/60">
           {sessions.map((s) => {
             const isCurrent = s.token === currentToken;
             return (
               <li className="flex items-center gap-3 py-2.5" key={s.id}>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm">
-                    {describeAgent(s.userAgent)}
-                    {isCurrent && <span className="ml-2 text-primary text-xs">this device</span>}
+                  <p className="flex items-center gap-2 text-sm">
+                    <span className="truncate">{describeAgent(s.userAgent)}</span>
+                    {isCurrent && (
+                      <span className="shrink-0 rounded-sm bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] text-primary">
+                        this device
+                      </span>
+                    )}
                   </p>
                   <p className="text-muted-foreground text-xs">
                     signed in {relativeTime(new Date(s.createdAt))}
@@ -207,7 +275,7 @@ function SessionsSection({ currentToken }: { currentToken?: string }) {
           })}
         </ul>
       )}
-    </section>
+    </Section>
   );
 }
 
@@ -238,30 +306,39 @@ function DangerSection() {
   }
 
   return (
-    <section className="mt-8 border-border border-t pt-6">
-      <h2 className="mb-1 font-medium text-sm">Danger zone</h2>
-      <p className="mb-3 text-muted-foreground text-xs">
-        Deletes every app (sandboxes and Neon projects included), then the account itself. There is
-        no undo.
-      </p>
-      <div className="flex flex-col gap-2 sm:flex-row">
-        <Input
-          autoComplete="current-password"
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="Confirm password"
-          type="password"
-          value={password}
-        />
+    <Section
+      description="Deletes every app, including its sandbox and Neon project, then the account itself. There is no undo."
+      title="Delete account"
+      tone="danger"
+    >
+      <form
+        className="flex flex-col gap-3 sm:flex-row sm:items-end"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (password.length >= 8 && !deleting) {
+            setConfirmOpen(true);
+          }
+        }}
+      >
+        <div className="min-w-0 flex-1">
+          <FieldLabel htmlFor="account-delete-password">Confirm with your password</FieldLabel>
+          <Input
+            autoComplete="current-password"
+            id="account-delete-password"
+            onChange={(e) => setPassword(e.target.value)}
+            type="password"
+            value={password}
+          />
+        </div>
         <Button
-          className="border-destructive/40 text-destructive hover:border-destructive hover:bg-destructive/10 hover:text-destructive"
           disabled={password.length < 8 || deleting}
-          onClick={() => setConfirmOpen(true)}
           size="sm"
-          variant="outline"
+          type="submit"
+          variant="destructive"
         >
           {deleting ? "Deleting…" : "Delete account"}
         </Button>
-      </div>
+      </form>
       <TeardownOverlay active={deleting} label="Deleting your apps and account…" />
       <ConfirmDialog
         confirmLabel="Hold to delete account"
@@ -271,6 +348,6 @@ function DangerSection() {
         open={confirmOpen}
         title="Delete this account?"
       />
-    </section>
+    </Section>
   );
 }

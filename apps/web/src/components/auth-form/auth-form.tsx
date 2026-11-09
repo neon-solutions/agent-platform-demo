@@ -1,8 +1,7 @@
 "use client";
 
 import type { ComponentProps, FocusEvent, FormEvent, ReactNode } from "react";
-import { useEffect, useId, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useId, useState } from "react";
 
 import { Button } from "@vibe/ui/components/button";
 import { cn } from "@vibe/ui/lib/utils";
@@ -416,7 +415,7 @@ export interface PasswordRequirement {
   met: boolean;
 }
 
-/** The checklist the popover renders while the password field is focused. */
+/** The checklist listed under the sign-up password field. */
 const passwordRequirements = (value: string): PasswordRequirement[] => [
   { label: "8+ characters", met: value.length >= MIN_PASSWORD },
   {
@@ -461,85 +460,62 @@ const beamTone = (error: string | null | undefined, meter: StrengthMeter | null 
 };
 
 /* ─────────────────────────────────────────────────────────
- * REQUIREMENTS POPOVER
+ * REQUIREMENTS
  *
- * Portaled to the body and pinned to the input's rect (fixed
- * position, re-measured on scroll and resize), so it floats
- * above every sibling — no stacking context, not even the
- * charged CTA's glow, can paint over it. Each rule flips
- * from a muted dot to a drawn primary check as the password
- * satisfies it. Floating, so nothing in the form shifts.
+ * Listed under the password field for the whole sign-up, so the
+ * rules are known before typing and nothing covers the action
+ * below. Each rule flips from a muted dot to a drawn primary
+ * check as the password satisfies it.
  * ───────────────────────────────────────────────────────── */
-const RequirementsPopover = ({
-  anchor,
+const RequirementList = ({
+  id,
   requirements,
 }: {
-  anchor: { current: HTMLInputElement | null };
+  id: string;
   requirements: PasswordRequirement[];
-}) => {
-  const [rect, setRect] = useState<DOMRect | null>(null);
-
-  useEffect(() => {
-    const measure = () => {
-      const el = anchor.current;
-
-      if (el) {
-        setRect(el.getBoundingClientRect());
-      }
-    };
-
-    const frame = requestAnimationFrame(measure);
-    window.addEventListener("scroll", measure, true);
-    window.addEventListener("resize", measure);
-    return () => {
-      cancelAnimationFrame(frame);
-      window.removeEventListener("scroll", measure, true);
-      window.removeEventListener("resize", measure);
-    };
-  }, [anchor]);
-
-  if (!rect) {
-    return null;
-  }
-
-  return createPortal(
-    <div
-      aria-hidden="true"
-      className="fade-in-0 slide-in-from-bottom-1 pointer-events-none fixed z-50 flex w-max animate-in flex-col gap-1.5 rounded-md border border-border/60 bg-popover p-3 shadow-lg duration-200 motion-reduce:animate-none"
-      data-slot="auth-form-requirements"
-      style={{ left: rect.left, top: rect.bottom + 8 }}
-    >
-      {requirements.map((rule) => (
-        <span
-          className={cn(
-            "flex items-center gap-2 text-xs transition-colors duration-200",
-            rule.met ? "text-foreground" : "text-muted-foreground/70",
-          )}
-          data-met={rule.met || undefined}
-          key={rule.label}
-        >
-          {rule.met ? (
-            <svg
-              className="size-3 text-primary"
-              fill="none"
-              stroke="currentColor"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="2.5"
-              viewBox="0 0 24 24"
-            >
-              <path className="neon-check-draw" d="M4 12.5 10 18.5 20 6" pathLength={1} />
-            </svg>
-          ) : (
-            <span className="mx-[5px] size-0.5 rounded-full bg-muted-foreground/70" />
-          )}
+}) => (
+  <ul
+    aria-label="Password requirements"
+    id={id}
+    className="grid grid-cols-2 gap-x-3 gap-y-1"
+    data-slot="auth-form-requirements"
+  >
+    {requirements.map((rule) => (
+      <li
+        className={cn(
+          "flex items-center gap-1.5 text-xs transition-colors duration-200",
+          rule.met ? "text-foreground" : "text-muted-foreground",
+        )}
+        data-met={rule.met || undefined}
+        key={rule.label}
+      >
+        {rule.met ? (
+          <svg
+            aria-hidden="true"
+            className="size-3 shrink-0 text-primary"
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="2.5"
+            viewBox="0 0 24 24"
+          >
+            <path className="neon-check-draw" d="M4 12.5 10 18.5 20 6" pathLength={1} />
+          </svg>
+        ) : (
+          <span
+            aria-hidden="true"
+            className="mx-[5px] size-0.5 shrink-0 rounded-full bg-muted-foreground/70"
+          />
+        )}
+        <span>
           {rule.label}
+          <span className="sr-only">{rule.met ? ", met" : ", not met"}</span>
         </span>
-      ))}
-    </div>,
-    document.body,
-  );
-};
+      </li>
+    ))}
+  </ul>
+);
 
 /* The field frame stays neutral in every state — the beam under the
  * input and the label carry the verdict. */
@@ -604,74 +580,67 @@ const AuthField = ({
   valid?: boolean;
 }) => {
   const messageId = useId();
-  const anchorRef = useRef<HTMLInputElement>(null);
-  const [focused, setFocused] = useState(false);
+  const requirementsId = useId();
 
   return (
-    <label
-      className={cn("group flex flex-col gap-1.5", RISE)}
-      data-invalid={error ? true : undefined}
-      data-slot="auth-form-field"
-      style={{ animationDelay: `${delay}ms` }}
-    >
-      {/* The label slot: the verdict takes it over in place — same
+    <div className={cn("flex flex-col gap-2", RISE)} style={{ animationDelay: `${delay}ms` }}>
+      <label
+        className="group flex flex-col gap-1.5"
+        data-invalid={error ? true : undefined}
+        data-slot="auth-form-field"
+      >
+        {/* The label slot: the verdict takes it over in place — same
           row, same height, zero layout shift. */}
-      <span className="flex items-baseline justify-between">
-        <span
-          className={cn(
-            "fade-in-0 min-w-0 flex-1 animate-in truncate text-xs duration-200 motion-reduce:animate-none",
-            error
-              ? "text-destructive"
-              : "text-muted-foreground transition-colors group-focus-within:text-foreground",
-          )}
-          id={messageId}
-          key={error ?? label}
-          role={error ? "alert" : undefined}
-        >
-          {error ?? label}
+        <span className="flex items-baseline justify-between">
+          <span
+            className={cn(
+              "fade-in-0 min-w-0 flex-1 animate-in truncate text-xs duration-200 motion-reduce:animate-none",
+              error
+                ? "text-destructive"
+                : "text-muted-foreground transition-colors group-focus-within:text-foreground",
+            )}
+            id={messageId}
+            key={error ?? label}
+            role={error ? "alert" : undefined}
+          >
+            {error ?? label}
+          </span>
+          {trailing}
         </span>
-        {trailing}
-      </span>
-      <span className="relative">
-        <input
-          aria-describedby={error ? messageId : undefined}
-          aria-invalid={error ? true : undefined}
-          autoComplete={autoComplete}
-          className={cn(FIELD_INPUT, (valid || error) && "pr-9")}
-          disabled={disabled}
-          name={name}
-          onBlur={(event: FocusEvent<HTMLInputElement>) => {
-            setFocused(false);
-            onLeave(name, event.target.value);
-          }}
-          onChange={() => onEdit(name)}
-          onFocus={() => setFocused(true)}
-          placeholder={placeholder}
-          ref={anchorRef}
-          type={type}
-        />
-        {/* The beam: primary light sweeps in on focus; a verdict
+        <span className="relative">
+          <input
+            aria-describedby={error ? messageId : requirements ? requirementsId : undefined}
+            aria-invalid={error ? true : undefined}
+            autoComplete={autoComplete}
+            className={cn(FIELD_INPUT, (valid || error) && "pr-9")}
+            disabled={disabled}
+            name={name}
+            onBlur={(event: FocusEvent<HTMLInputElement>) => onLeave(name, event.target.value)}
+            onChange={() => onEdit(name)}
+            placeholder={placeholder}
+            type={type}
+          />
+          {/* The beam: primary light sweeps in on focus; a verdict
             relights it in destructive and keeps it lit. With a
             strength meter, the beam's reach IS the reading. */}
-        <span
-          aria-hidden="true"
-          className={cn(
-            "pointer-events-none absolute inset-x-px bottom-0 h-[1.5px] origin-left motion-reduce:transition-none",
-            beamTone(error, meter),
-          )}
-          data-slot="auth-form-field-beam"
-          style={{
-            transition: `scale 250ms ${EASE_OUT}, background-color 250ms ease`,
-            ...(meter && !error && { scale: `${meter.ratio} 1` }),
-          }}
-        />
-        {valid ? <DrawnGlyph kind="check" /> : null}
-        {error ? <DrawnGlyph kind="cross" /> : null}
-        {requirements && focused ? (
-          <RequirementsPopover anchor={anchorRef} requirements={requirements} />
-        ) : null}
-      </span>
-    </label>
+          <span
+            aria-hidden="true"
+            className={cn(
+              "pointer-events-none absolute inset-x-px bottom-0 h-[1.5px] origin-left motion-reduce:transition-none",
+              beamTone(error, meter),
+            )}
+            data-slot="auth-form-field-beam"
+            style={{
+              transition: `scale 250ms ${EASE_OUT}, background-color 250ms ease`,
+              ...(meter && !error && { scale: `${meter.ratio} 1` }),
+            }}
+          />
+          {valid ? <DrawnGlyph kind="check" /> : null}
+          {error ? <DrawnGlyph kind="cross" /> : null}
+        </span>
+      </label>
+      {requirements ? <RequirementList id={requirementsId} requirements={requirements} /> : null}
+    </div>
   );
 };
 
@@ -746,7 +715,7 @@ const AuthFormFields = ({
           autoComplete="name"
           delay={TIMING.fields}
           disabled={isBusy}
-          label="name"
+          label="Name"
           name="name"
           onEdit={onEdit}
           onLeave={onLeave}
@@ -759,7 +728,7 @@ const AuthFormFields = ({
         autoComplete="email"
         delay={TIMING.fields + (signUp ? TIMING.fieldStagger : 0)}
         disabled={isBusy}
-        label="email"
+        label="Email"
         name="email"
         onEdit={onEdit}
         onLeave={onLeave}
@@ -772,7 +741,7 @@ const AuthFormFields = ({
           autoComplete={signUp ? "new-password" : "current-password"}
           delay={TIMING.fields + TIMING.fieldStagger * (signUp ? 2 : 1)}
           disabled={isBusy}
-          label="password"
+          label="Password"
           meter={meter}
           name="password"
           onEdit={onEdit}
@@ -822,7 +791,7 @@ const AuthFormAction = ({
         "w-full transition-[background-color,color,border-color,box-shadow,scale] duration-300 active:scale-[0.98] motion-reduce:active:scale-100",
         charged || isBusy
           ? cn(CTA_GLOW, "disabled:opacity-100")
-          : "border border-border/60 bg-transparent text-muted-foreground hover:bg-transparent hover:text-foreground",
+          : "border border-border bg-transparent text-foreground hover:bg-muted/50",
       )}
       data-charged={charged || undefined}
       disabled={isBusy}

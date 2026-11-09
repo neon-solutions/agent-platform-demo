@@ -1,10 +1,10 @@
 "use client";
 
 import type { ChatStatus, UIMessage } from "ai";
-import { ChevronRightIcon, Loader2Icon, SendIcon } from "lucide-react";
+import { ChevronRightIcon, SendIcon, SquareIcon } from "lucide-react";
 import { domAnimation, LazyMotion, m, useReducedMotion } from "motion/react";
 import type { ComponentProps, FormEvent, KeyboardEvent, ReactNode } from "react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Streamdown } from "streamdown";
 
 import { EmptyState } from "@/components/empty-state/empty-state";
@@ -121,10 +121,13 @@ const chipState = (state: string): ToolCallState => {
 /**
  * A finished turn has no running tools. History-hydrated parts don't carry
  * the live stream's state strings, so anything still "running" in a settled
- * message is actually done.
+ * message is actually done, unless the user stopped that turn, in which case
+ * the call never reported back.
  */
-const settleTools = (tools: ToolEntry[]): ToolEntry[] =>
-  tools.map((tool) => (tool.state === "running" ? { ...tool, state: "done" } : tool));
+const settleTools = (tools: ToolEntry[], stopped: boolean): ToolEntry[] =>
+  tools.map((tool) =>
+    tool.state === "running" ? { ...tool, state: stopped ? "stopped" : "done" } : tool,
+  );
 
 type Part = UIMessage["parts"][number];
 
@@ -268,13 +271,14 @@ export const ToolGroup = ({
   // momentarily settled, and folding in those gaps reads as a glitch.
   const working = live || running;
   const failed = tools.filter((tool) => tool.state === "error").length;
+  const stopped = tools.some((tool) => tool.state === "stopped");
   // User toggle wins; otherwise open while working, closed at rest.
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
   const open = userOpen ?? working;
 
   const summary = working
     ? "Working…"
-    : `${tools.length} step${tools.length === 1 ? "" : "s"}${failed > 0 ? ` · ${failed} failed` : ""}`;
+    : `${tools.length} step${tools.length === 1 ? "" : "s"}${failed > 0 ? ` · ${failed} failed` : ""}${stopped ? " · stopped" : ""}`;
 
   return (
     <div
@@ -339,10 +343,18 @@ export type ChatMessageProps = Omit<ComponentProps<"div">, "children"> & {
    * instead of folding in the gaps between calls.
    */
   isLive?: boolean;
+  /** The user stopped this turn: calls that never reported back read as stopped. */
+  stopped?: boolean;
 };
 
 /** One conversation turn: user bubble or agent markdown with tool chips. */
-export const ChatMessage = ({ className, message, isLive = false, ...props }: ChatMessageProps) => {
+export const ChatMessage = ({
+  className,
+  message,
+  isLive = false,
+  stopped = false,
+  ...props
+}: ChatMessageProps) => {
   if (message.role === "user") {
     const text = message.parts.map((part) => (part.type === "text" ? part.text : "")).join("");
 
@@ -371,7 +383,7 @@ export const ChatMessage = ({ className, message, isLive = false, ...props }: Ch
         }
 
         if (segment.kind === "tools") {
-          const tools = isLive ? segment.tools : settleTools(segment.tools);
+          const tools = isLive ? segment.tools : settleTools(segment.tools, stopped);
           // One call is a log line, not a folder.
           if (tools.length === 1) {
             const tool = tools[0];
@@ -400,8 +412,34 @@ const autoGrow = (event: FormEvent<HTMLTextAreaElement>) => {
   textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
 };
 
+/** "0:42" for the turn in flight, ticking once a second while busy. */
+const useElapsed = (running: boolean): string | null => {
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [now, setNow] = useState(0);
+
+  useEffect(() => {
+    if (!running) {
+      setStartedAt(null);
+      return;
+    }
+    const start = Date.now();
+    setStartedAt(start);
+    setNow(start);
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [running]);
+
+  if (startedAt === null) {
+    return null;
+  }
+  const seconds = Math.max(0, Math.floor((now - startedAt) / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+};
+
 export interface ChatInputProps {
   onSend: (text: string) => void;
+  /** Shown as the action while busy: cancels the turn in flight. */
+  onStop?: () => void;
   disabled?: boolean;
   busy?: boolean;
   placeholder?: string;
@@ -417,9 +455,11 @@ export const ChatInput = ({
   controls,
   disabled = false,
   onSend,
+  onStop,
   placeholder = "Describe a change…",
 }: ChatInputProps) => {
   const [text, setText] = useState("");
+  const elapsed = useElapsed(busy);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const submit = useCallback(() => {
@@ -470,15 +510,31 @@ export const ChatInput = ({
       />
       <div className="flex items-end justify-between gap-2 px-2.5 pb-2.5">
         <div className="flex min-w-0 items-center gap-2">{controls}</div>
-        <Button
-          aria-label={busy ? "Waiting for the agent" : "Send message"}
-          className="shrink-0"
-          disabled={disabled || busy || text.trim().length === 0}
-          onClick={submit}
-          size="icon-sm"
-        >
-          {busy ? <Loader2Icon className="animate-spin" /> : <SendIcon />}
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          {elapsed ? (
+            <span
+              className="font-mono text-[11px] text-muted-foreground tabular-nums"
+              data-slot="chat-input-elapsed"
+              title="Time this turn has been running"
+            >
+              {elapsed}
+            </span>
+          ) : null}
+          {busy && onStop ? (
+            <Button aria-label="Stop the agent" onClick={onStop} size="icon-sm" variant="outline">
+              <SquareIcon className="fill-current" />
+            </Button>
+          ) : (
+            <Button
+              aria-label="Send message"
+              disabled={disabled || busy || text.trim().length === 0}
+              onClick={submit}
+              size="icon-sm"
+            >
+              <SendIcon />
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -534,6 +590,10 @@ export type AgentChatProps = Omit<ComponentProps<"div">, "children"> & {
   activeControls?: AgentChatTurnMetadata;
   /** Shown in the error state; called to resend the last message. */
   onRetry?: () => void;
+  /** Cancels the turn in flight; the composer offers it while busy. */
+  onStop?: () => void;
+  /** Ids of assistant messages whose turn the user stopped. */
+  stoppedMessageIds?: ReadonlySet<string>;
   /** Slot between the timeline and the composer, e.g. a runtime-error notice. */
   banner?: ReactNode;
 };
@@ -548,8 +608,10 @@ export const AgentChat = ({
   messages,
   onRetry,
   onSend,
+  onStop,
   placeholder,
   status,
+  stoppedMessageIds,
   ...props
 }: AgentChatProps) => {
   const busy = status === "submitted" || status === "streaming";
@@ -600,6 +662,7 @@ export const AgentChat = ({
                         <ChatMessage
                           isLive={busy && index === messages.length - 1}
                           message={message}
+                          stopped={stoppedMessageIds?.has(message.id) ?? false}
                         />
                       </TurnEntrance>
                     </MessageScrollerItem>
@@ -648,6 +711,7 @@ export const AgentChat = ({
           controls={controls}
           disabled={disabled}
           onSend={onSend}
+          onStop={onStop}
           placeholder={placeholder}
         />
       </div>
