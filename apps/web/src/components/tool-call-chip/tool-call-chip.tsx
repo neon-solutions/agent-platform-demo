@@ -1,11 +1,12 @@
 "use client";
 
-import { CheckIcon, Loader2Icon, XIcon } from "lucide-react";
+import { CheckIcon, Loader2Icon, SquareIcon, XIcon } from "lucide-react";
 import type { ComponentProps } from "react";
 
 import { cn } from "@vibe/ui/lib/utils";
 
-export type ToolCallState = "running" | "done" | "error";
+/** "stopped": the turn was stopped before this call reported back. */
+export type ToolCallState = "running" | "done" | "error" | "stopped";
 
 export type ToolCallChipProps = Omit<ComponentProps<"span">, "children"> & {
   /** Tool name, shown in mono, e.g. "writeFile". */
@@ -21,12 +22,14 @@ export type ToolCallChipProps = Omit<ComponentProps<"span">, "children"> & {
  * tool name in mono, and the target dimmed after it. No
  * border, no fill — the states speak through the glyph:
  * spinner while running, a small green check when done, a
- * red cross on error. Color only ever touches the glyph.
+ * red cross on error, a muted square when the turn was
+ * stopped first. Color only ever touches the glyph.
  * ───────────────────────────────────────────────────────── */
 const STATE_ICON: Record<ToolCallState, typeof CheckIcon> = {
   done: CheckIcon,
   error: XIcon,
   running: Loader2Icon,
+  stopped: SquareIcon,
 };
 
 export const ToolCallChip = ({
@@ -55,6 +58,7 @@ export const ToolCallChip = ({
           state === "running" && "animate-spin text-muted-foreground/70",
           state === "done" && "text-primary",
           state === "error" && "text-destructive",
+          state === "stopped" && "size-2.5 text-muted-foreground",
         )}
       />
       <span className="shrink-0">{name}</span>

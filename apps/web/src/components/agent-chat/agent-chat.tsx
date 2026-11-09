@@ -121,10 +121,13 @@ const chipState = (state: string): ToolCallState => {
 /**
  * A finished turn has no running tools. History-hydrated parts don't carry
  * the live stream's state strings, so anything still "running" in a settled
- * message is actually done.
+ * message is actually done, unless the user stopped that turn, in which case
+ * the call never reported back.
  */
-const settleTools = (tools: ToolEntry[]): ToolEntry[] =>
-  tools.map((tool) => (tool.state === "running" ? { ...tool, state: "done" } : tool));
+const settleTools = (tools: ToolEntry[], stopped: boolean): ToolEntry[] =>
+  tools.map((tool) =>
+    tool.state === "running" ? { ...tool, state: stopped ? "stopped" : "done" } : tool,
+  );
 
 type Part = UIMessage["parts"][number];
 
@@ -268,13 +271,14 @@ export const ToolGroup = ({
   // momentarily settled, and folding in those gaps reads as a glitch.
   const working = live || running;
   const failed = tools.filter((tool) => tool.state === "error").length;
+  const stopped = tools.some((tool) => tool.state === "stopped");
   // User toggle wins; otherwise open while working, closed at rest.
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
   const open = userOpen ?? working;
 
   const summary = working
     ? "Working…"
-    : `${tools.length} step${tools.length === 1 ? "" : "s"}${failed > 0 ? ` · ${failed} failed` : ""}`;
+    : `${tools.length} step${tools.length === 1 ? "" : "s"}${failed > 0 ? ` · ${failed} failed` : ""}${stopped ? " · stopped" : ""}`;
 
   return (
     <div
@@ -339,10 +343,18 @@ export type ChatMessageProps = Omit<ComponentProps<"div">, "children"> & {
    * instead of folding in the gaps between calls.
    */
   isLive?: boolean;
+  /** The user stopped this turn: calls that never reported back read as stopped. */
+  stopped?: boolean;
 };
 
 /** One conversation turn: user bubble or agent markdown with tool chips. */
-export const ChatMessage = ({ className, message, isLive = false, ...props }: ChatMessageProps) => {
+export const ChatMessage = ({
+  className,
+  message,
+  isLive = false,
+  stopped = false,
+  ...props
+}: ChatMessageProps) => {
   if (message.role === "user") {
     const text = message.parts.map((part) => (part.type === "text" ? part.text : "")).join("");
 
@@ -371,7 +383,7 @@ export const ChatMessage = ({ className, message, isLive = false, ...props }: Ch
         }
 
         if (segment.kind === "tools") {
-          const tools = isLive ? segment.tools : settleTools(segment.tools);
+          const tools = isLive ? segment.tools : settleTools(segment.tools, stopped);
           // One call is a log line, not a folder.
           if (tools.length === 1) {
             const tool = tools[0];
@@ -580,6 +592,8 @@ export type AgentChatProps = Omit<ComponentProps<"div">, "children"> & {
   onRetry?: () => void;
   /** Cancels the turn in flight; the composer offers it while busy. */
   onStop?: () => void;
+  /** Id of the assistant message the user stopped, if any. */
+  stoppedMessageId?: string;
   /** Slot between the timeline and the composer, e.g. a runtime-error notice. */
   banner?: ReactNode;
 };
@@ -597,6 +611,7 @@ export const AgentChat = ({
   onStop,
   placeholder,
   status,
+  stoppedMessageId,
   ...props
 }: AgentChatProps) => {
   const busy = status === "submitted" || status === "streaming";
@@ -647,6 +662,7 @@ export const AgentChat = ({
                         <ChatMessage
                           isLive={busy && index === messages.length - 1}
                           message={message}
+                          stopped={message.id === stoppedMessageId}
                         />
                       </TurnEntrance>
                     </MessageScrollerItem>

@@ -141,10 +141,7 @@ export function Workspace({
   initialPrompt?: string;
 }) {
   const [proto, setProto] = useState<Prototype>(initial);
-  // Bumped by "Try again" after a failed provisioning run; each attempt
-  // starts its own provision call and poll.
-  const [attempt, setAttempt] = useState(0);
-  const startedAttempt = useRef<number | null>(null);
+  const provisionSent = useRef(false);
 
   // Kick off provisioning + poll until the sandbox is ready.
   //
@@ -152,16 +149,16 @@ export function Workspace({
   // it (provisioning → booting → ready), so depending on it would tear down
   // the loop on its own first result.
   //
-  // The provision call is sent once per attempt; the poll restarts on every
-  // run. An effect re-run (Strict Mode, Fast Refresh) cancels the previous
-  // loop, and a guard that skipped the restart left the page on
-  // "provisioning" after the app was ready.
+  // The provision call is sent once; the poll restarts on every run. An
+  // effect re-run (Strict Mode, Fast Refresh) cancels the previous loop, and
+  // a guard that skipped the restart left the page on "provisioning" after
+  // the app was ready.
   useEffect(() => {
-    if (attempt === 0 && (initial.status === "ready" || initial.status === "error")) {
+    if (initial.status === "ready" || initial.status === "error") {
       return;
     }
-    if (startedAttempt.current !== attempt) {
-      startedAttempt.current = attempt;
+    if (!provisionSent.current) {
+      provisionSent.current = true;
       client.prototypes.provision({ id: initial.id }).catch(() => {
         // Poll below reports the error state.
       });
@@ -184,17 +181,12 @@ export function Workspace({
     return () => {
       cancelled = true;
     };
-  }, [initial.id, initial.status, attempt]);
+  }, [initial.id, initial.status]);
 
   // The server set the title from the name at load; a rename happens here.
   useEffect(() => {
     document.title = `${proto.name} · Vibe`;
   }, [proto.name]);
-
-  const retryProvisioning = useCallback(() => {
-    setProto((p) => ({ ...p, status: "provisioning", statusDetail: "Retrying…" }));
-    setAttempt((a) => a + 1);
-  }, []);
 
   const [turn, setTurn] = useState(0);
   // Live activity, reflected in the preview chrome: the agent editing
@@ -294,7 +286,6 @@ export function Workspace({
                   <div className="relative h-full">
                     <PreviewPanel
                       awaitingPaint={restore.awaitingPaint}
-                      onRetryProvisioning={retryProvisioning}
                       onPainted={onPainted}
                       onRestoreTimeout={onRestoreTimeout}
                       proto={proto}
@@ -606,6 +597,7 @@ function ChatPanel({
   // A stopped turn and a finished one both land on "ready"; only this tells
   // the user the agent didn't get to the end of what they asked.
   const [stopped, setStopped] = useState(false);
+  const [stoppedMessageId, setStoppedMessageId] = useState<string>();
   const send = (text: string) => {
     setStopped(false);
     sendMessage({ metadata: { model, modelName }, text });
@@ -764,8 +756,11 @@ function ChatPanel({
         onSend={send}
         onStop={() => {
           setStopped(true);
+          const last = messages.at(-1);
+          setStoppedMessageId(last?.role === "assistant" ? last.id : undefined);
           void stop();
         }}
+        stoppedMessageId={stoppedMessageId}
         placeholder={ready ? "Describe a change…" : "Waiting for the sandbox to boot…"}
         status={status}
       />
@@ -846,11 +841,9 @@ function PreviewPanel({
   awaitingPaint,
   onPainted,
   onRestoreTimeout,
-  onRetryProvisioning,
 }: {
   proto: Prototype;
   refreshSignal: number;
-  onRetryProvisioning: () => void;
   working: boolean;
   restoring: boolean;
   /** A restore's reload is on its way; the loader waits for it to paint. */
@@ -938,7 +931,6 @@ function PreviewPanel({
           ? undefined
           : "Creating a Neon Postgres project and booting a Vercel Sandbox.")
       }
-      onRetry={proto.status === "error" ? onRetryProvisioning : undefined}
       size="lg"
       state={proto.status === "error" ? "error" : "provisioning"}
       variant="bare"
