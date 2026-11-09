@@ -592,8 +592,8 @@ export type AgentChatProps = Omit<ComponentProps<"div">, "children"> & {
   onRetry?: () => void;
   /** Cancels the turn in flight; the composer offers it while busy. */
   onStop?: () => void;
-  /** Id of the assistant message the user stopped, if any. */
-  stoppedMessageId?: string;
+  /** Ids of assistant messages whose turn the user stopped. */
+  stoppedMessageIds?: ReadonlySet<string>;
   /** Slot between the timeline and the composer, e.g. a runtime-error notice. */
   banner?: ReactNode;
 };
@@ -611,7 +611,7 @@ export const AgentChat = ({
   onStop,
   placeholder,
   status,
-  stoppedMessageId,
+  stoppedMessageIds,
   ...props
 }: AgentChatProps) => {
   const busy = status === "submitted" || status === "streaming";
@@ -662,7 +662,7 @@ export const AgentChat = ({
                         <ChatMessage
                           isLive={busy && index === messages.length - 1}
                           message={message}
-                          stopped={message.id === stoppedMessageId}
+                          stopped={stoppedMessageIds?.has(message.id) ?? false}
                         />
                       </TurnEntrance>
                     </MessageScrollerItem>

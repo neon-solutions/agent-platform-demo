@@ -597,7 +597,7 @@ function ChatPanel({
   // A stopped turn and a finished one both land on "ready"; only this tells
   // the user the agent didn't get to the end of what they asked.
   const [stopped, setStopped] = useState(false);
-  const [stoppedMessageId, setStoppedMessageId] = useState<string>();
+  const [stoppedMessageIds, setStoppedMessageIds] = useState<ReadonlySet<string>>(new Set());
   const send = (text: string) => {
     setStopped(false);
     sendMessage({ metadata: { model, modelName }, text });
@@ -757,10 +757,12 @@ function ChatPanel({
         onStop={() => {
           setStopped(true);
           const last = messages.at(-1);
-          setStoppedMessageId(last?.role === "assistant" ? last.id : undefined);
+          if (last?.role === "assistant") {
+            setStoppedMessageIds((ids) => new Set(ids).add(last.id));
+          }
           void stop();
         }}
-        stoppedMessageId={stoppedMessageId}
+        stoppedMessageIds={stoppedMessageIds}
         placeholder={ready ? "Describe a change…" : "Waiting for the sandbox to boot…"}
         status={status}
       />
