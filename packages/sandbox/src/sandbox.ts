@@ -36,18 +36,51 @@ function creds(): VercelCreds | Record<string, never> {
   return {};
 }
 
-/** Run a shell command in the sandbox and throw if it fails. */
+/** Exit status of coreutils `timeout --signal=KILL` when it kills the command. */
+const KILLED = 137;
+
+/**
+ * `timeout` runs in its own process group with output in temp files. The SDK
+ * only returns once every holder of the command's stdout/stderr has exited, so
+ * a background job left on those pipes would keep the call open no matter when
+ * `timeout` fires. After `timeout` returns, whatever is left in its group is
+ * killed and the captured output is replayed.
+ */
+const BOUNDED = `out=$(mktemp); err=$(mktemp)
+timeout --signal=KILL "$1" bash -lc "$2" >"$out" 2>"$err" </dev/null & pid=$!
+{ wait "$pid"; } 2>/dev/null; status=$?
+kill -KILL -- "-$pid" 2>/dev/null
+cat "$out"; cat "$err" >&2; rm -f "$out" "$err"
+exit "$status"`;
+
+/**
+ * Run a shell command in the sandbox and throw if it fails. With
+ * `timeoutSeconds`, the command gets SIGKILL at the limit, and anything it
+ * left running (a server, a background job, a child trapping SIGTERM) is
+ * killed when it ends, so nothing it starts can hang the caller.
+ */
 export async function runInSandbox(
   sandbox: Sandbox,
   script: string,
   env?: Record<string, string>,
+  opts?: { timeoutSeconds?: number },
 ): Promise<string> {
-  const cmd = await sandbox.runCommand({
-    cmd: "bash",
-    args: ["-lc", script],
-    env,
-  });
+  const startedAt = Date.now();
+  const cmd = await sandbox.runCommand(
+    opts?.timeoutSeconds
+      ? { cmd: "bash", args: ["-c", BOUNDED, "bash", String(opts.timeoutSeconds), script], env }
+      : { cmd: "bash", args: ["-lc", script], env },
+  );
   const [out, err] = await Promise.all([cmd.stdout(), cmd.stderr()]);
+  // 137 is also what an out-of-memory kill returns, so it only counts as a
+  // timeout once the deadline has actually passed.
+  const timedOut =
+    cmd.exitCode === KILLED && Date.now() - startedAt >= (opts?.timeoutSeconds ?? 0) * 1000;
+  if (opts?.timeoutSeconds && timedOut) {
+    throw new Error(
+      `command timed out after ${opts.timeoutSeconds}s and was killed: ${script}\n${err || out}`,
+    );
+  }
   if (cmd.exitCode !== 0) {
     throw new Error(`command failed (${cmd.exitCode}): ${script}\n${err || out}`);
   }

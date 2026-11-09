@@ -12,6 +12,7 @@ import {
 } from "./db";
 
 const MAX_OUTPUT = 8000;
+const RUN_COMMAND_TIMEOUT_SECONDS = 180;
 const truncate = (s: string) =>
   s.length > MAX_OUTPUT ? s.slice(0, MAX_OUTPUT) + "\n…(truncated)" : s;
 
@@ -96,14 +97,16 @@ export function buildTools(proto: PrototypeRow) {
 
     runCommand: createTool({
       id: "runCommand",
-      description:
-        "Run a shell command in the app's sandbox (e.g. `npm install <pkg>`, `ls`, `node -e ...`). DATABASE_URL is set. Returns combined stdout/stderr.",
+      description: `Run a shell command in the app's sandbox (e.g. \`npm install <pkg>\`, \`ls\`, \`node -e ...\`). DATABASE_URL is set. Returns combined stdout/stderr. The command must exit on its own: it is killed after ${RUN_COMMAND_TIMEOUT_SECONDS}s. Never start servers, watchers, or studios (\`next dev\`, \`drizzle-kit studio\`, \`--watch\`); the app's dev server is already running.`,
       inputSchema: z.object({ command: z.string() }),
       execute: async ({ command }) => {
         const sb = await sandbox();
-        const out = await runInSandbox(sb, command, {
-          DATABASE_URL: databaseUrl,
-        }).catch((e) => (e instanceof Error ? e.message : String(e)));
+        const out = await runInSandbox(
+          sb,
+          command,
+          { DATABASE_URL: databaseUrl },
+          { timeoutSeconds: RUN_COMMAND_TIMEOUT_SECONDS },
+        ).catch((e) => (e instanceof Error ? e.message : String(e)));
         return { output: truncate(out) };
       },
     }),
