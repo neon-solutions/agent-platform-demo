@@ -36,18 +36,31 @@ function creds(): VercelCreds | Record<string, never> {
   return {};
 }
 
-/** Run a shell command in the sandbox and throw if it fails. */
+/** Exit status of coreutils `timeout` when it kills the command. */
+const TIMED_OUT = 124;
+
+/**
+ * Run a shell command in the sandbox and throw if it fails. With
+ * `timeoutSeconds`, the command's whole process group is killed at the limit,
+ * so a command that never exits (a server, a watcher) can't hang the caller.
+ */
 export async function runInSandbox(
   sandbox: Sandbox,
   script: string,
   env?: Record<string, string>,
+  opts?: { timeoutSeconds?: number },
 ): Promise<string> {
-  const cmd = await sandbox.runCommand({
-    cmd: "bash",
-    args: ["-lc", script],
-    env,
-  });
+  const cmd = await sandbox.runCommand(
+    opts?.timeoutSeconds
+      ? { cmd: "timeout", args: [String(opts.timeoutSeconds), "bash", "-lc", script], env }
+      : { cmd: "bash", args: ["-lc", script], env },
+  );
   const [out, err] = await Promise.all([cmd.stdout(), cmd.stderr()]);
+  if (opts?.timeoutSeconds && cmd.exitCode === TIMED_OUT) {
+    throw new Error(
+      `command timed out after ${opts.timeoutSeconds}s and was killed: ${script}\n${err || out}`,
+    );
+  }
   if (cmd.exitCode !== 0) {
     throw new Error(`command failed (${cmd.exitCode}): ${script}\n${err || out}`);
   }
