@@ -36,17 +36,14 @@ function creds(): VercelCreds | Record<string, never> {
   return {};
 }
 
-/** Exit status of coreutils `timeout` when SIGTERM ended the command. */
-const TIMED_OUT = 124;
-/** Exit status when the command ignored SIGTERM and `--kill-after` sent SIGKILL. */
+/** Exit status of coreutils `timeout --signal=KILL` when it kills the command. */
 const KILLED = 137;
-const KILL_AFTER_SECONDS = 5;
 
 /**
  * Run a shell command in the sandbox and throw if it fails. With
- * `timeoutSeconds`, the command's process group gets SIGTERM at the limit and
- * SIGKILL shortly after, so a command that never exits (a server, a watcher,
- * something trapping SIGTERM) can't hang the caller.
+ * `timeoutSeconds`, the command's whole process group gets SIGKILL at the
+ * limit, so nothing it started (a server, a watcher, a child trapping SIGTERM)
+ * can outlive it and hang the caller.
  */
 export async function runInSandbox(
   sandbox: Sandbox,
@@ -59,13 +56,7 @@ export async function runInSandbox(
     opts?.timeoutSeconds
       ? {
           cmd: "timeout",
-          args: [
-            `--kill-after=${KILL_AFTER_SECONDS}`,
-            String(opts.timeoutSeconds),
-            "bash",
-            "-lc",
-            script,
-          ],
+          args: ["--signal=KILL", String(opts.timeoutSeconds), "bash", "-lc", script],
           env,
         }
       : { cmd: "bash", args: ["-lc", script], env },
@@ -74,8 +65,7 @@ export async function runInSandbox(
   // 137 is also what an out-of-memory kill returns, so it only counts as a
   // timeout once the deadline has actually passed.
   const timedOut =
-    cmd.exitCode === TIMED_OUT ||
-    (cmd.exitCode === KILLED && Date.now() - startedAt >= (opts?.timeoutSeconds ?? 0) * 1000);
+    cmd.exitCode === KILLED && Date.now() - startedAt >= (opts?.timeoutSeconds ?? 0) * 1000;
   if (opts?.timeoutSeconds && timedOut) {
     throw new Error(
       `command timed out after ${opts.timeoutSeconds}s and was killed: ${script}\n${err || out}`,
